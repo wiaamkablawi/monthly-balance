@@ -40,7 +40,9 @@ function kindToDoc(
   kind: AddKind
 ): { type: EntryDoc["type"]; subType?: EntryDoc["subType"] } {
   if (kind === "income") return { type: "income" };
-  if (kind === "expense_fixed") return { type: "expense", subType: "fixed" };
+ if (kind === "expense_fixed") 
+  return { type: "expense", subType: "fixed_realization" };
+
   return { type: "expense", subType: "variable" };
 }
 
@@ -596,7 +598,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <AppLayout>
+    <AppLayout title="דשבורד">
       <div className="container">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div className="row" style={{ gap: 10, alignItems: "center" }}>

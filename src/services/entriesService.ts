@@ -15,8 +15,9 @@ export async function addEntry(doc: Omit<EntryDoc, "id">): Promise<string> {
 
   const payload: Omit<EntryDoc, "id"> = {
     ...doc,
-    userEmail: doc.userEmail || email,
-    userKey: doc.userKey || userKeyFromEmail(doc.userEmail || email),
+   createdBy: (doc as any).createdBy || email,
+userKey: doc.userKey || userKeyFromEmail(((doc as any).createdBy || email) as string),
+
     month: (doc as any).month || monthFromDate((doc as any).date || ""),
     createdAt: (doc as any).createdAt || serverTimestamp(),
   } as any;
