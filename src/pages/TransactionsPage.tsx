@@ -18,14 +18,16 @@ import {
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
-function typeLabel(e: EntryDoc): string {
-  if (e.type === "income") return "הכנסה";
-  return "הוצאה";
+function typeLabel(it: EntryDoc) {
+  if (it.type === "income") return "הכנסה";
+if (it.type === "expense" && it.subType === "fixed_realization") return "הוצאה קבועה";
+  return "הוצאה משתנה";
 }
 
-function userLabel(userKey: string): string {
-  if (userKey === "B") return "ב";
+function userLabel(userKey?: string) {
   if (userKey === "W") return "ו";
+  if (userKey === "B") return "ב";
+  if (userKey === "SYSTEM") return "ס";
   return "ס";
 }
 
@@ -41,26 +43,52 @@ function hasInstallments(it: any): boolean {
   return !!it?.installmentsTotal && Number(it.installmentsTotal) > 1;
 }
 
-export default function TransactionsPage() {
-  const [monthKey, setMonthKey] = useState<string>(currentMonthKey());
-  const [state, setState] = useState<LoadState>("idle");
-  const [err, setErr] = useState<string>("");
-  const [items, setItems] = useState<EntryDoc[]>([]);
-  const [deletingId, setDeletingId] = useState<string>("");
+function toMillis(v: any): number {
+  if (!v) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (typeof v.toMillis === "function") return v.toMillis();
+  if (typeof v.seconds === "number") return v.seconds * 1000;
+  if (v instanceof Date) return v.getTime();
+  return 0;
+}
 
-  // מצב עריכה
-  const [editingId, setEditingId] = useState<string>("");
-  const [editDate, setEditDate] = useState<string>("");
-  const [editCategory, setEditCategory] = useState<string>("");
-  const [editDescription, setEditDescription] = useState<string>("");
-  const [editAmount, setEditAmount] = useState<string>("");
-  const [editErr, setEditErr] = useState<string>("");
-  const [savingEditId, setSavingEditId] = useState<string>("");
+function dateKey(v: any): string {
+  if (!v) return "";
+  if (typeof v === "string") return v.slice(0, 10);
+  if (typeof v.toDate === "function") {
+    try {
+      return v.toDate().toISOString().slice(0, 10);
+    } catch {
+      return "";
+    }
+  }
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return "";
+}
+
+export default function TransactionsPage() {
+  const [monthKey, setMonthKey] = useState(currentMonthKey());
+  const [state, setState] = useState<LoadState>("idle");
+  const [err, setErr] = useState("");
+  const [items, setItems] = useState<EntryDoc[]>([]);
+  const [deletingId, setDeletingId] = useState("");
+
+  const [editingId, setEditingId] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editErr, setEditErr] = useState("");
+  const [savingEditId, setSavingEditId] = useState("");
 
   const monthOptions = useMemo(() => {
     const out: string[] = [];
     const now = new Date();
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 24; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -93,6 +121,18 @@ export default function TransactionsPage() {
           id: d.id,
           ...(d.data() as Omit<EntryDoc, "id">),
         }));
+
+        // שינוי נקודתי: מיון לפי תאריך פעולה (date) מהחדש לישן
+        // במקרה של שוויון: לפי updatedAt ואז createdAt מהחדש לישן
+        list.sort((a: any, b: any) => {
+          const ad = dateKey(a?.date);
+          const bd = dateKey(b?.date);
+          if (ad !== bd) return bd.localeCompare(ad);
+
+          const aT = toMillis(a?.updatedAt) || toMillis(a?.createdAt);
+          const bT = toMillis(b?.updatedAt) || toMillis(b?.createdAt);
+          return bT - aT;
+        });
 
         if (!cancelled) {
           setItems(list);
@@ -127,7 +167,9 @@ export default function TransactionsPage() {
     if (!it?.id) return;
 
     const ok = window.confirm(
-      `האם למחוק את התנועה?\n\n${typeLabel(it)} - ${formatILS(it.amount)}\n${it.date} - ${it.category}`
+      `האם למחוק את התנועה?\n\n${typeLabel(it)} - ${formatILS(it.amount)}\n${String(it.date || "")} - ${String(
+        it.category || ""
+      )}`
     );
     if (!ok) return;
 
@@ -147,9 +189,9 @@ export default function TransactionsPage() {
   function startEdit(it: EntryDoc) {
     setEditErr("");
     setEditingId(it.id);
-    setEditDate(it.date || "");
-    setEditCategory(it.category || "");
-    setEditDescription(it.description || "");
+    setEditDate(String(it.date || ""));
+    setEditCategory(String(it.category || ""));
+    setEditDescription(String(it.description || ""));
     setEditAmount(String(it.amount ?? ""));
   }
 
@@ -207,9 +249,19 @@ export default function TransactionsPage() {
       if (nextMonthKey !== monthKey) {
         setItems((prev) => prev.filter((x) => x.id !== it.id));
       } else {
-        setItems((prev) =>
-          prev.map((x) => (x.id === it.id ? { ...x, ...updatePayload } : x))
-        );
+        setItems((prev) => {
+          const next = prev.map((x) => (x.id === it.id ? ({ ...x, ...updatePayload } as any) : x));
+          // לשמור על המיון גם אחרי שמירה
+          next.sort((a: any, b: any) => {
+            const ad = dateKey(a?.date);
+            const bd = dateKey(b?.date);
+            if (ad !== bd) return bd.localeCompare(ad);
+            const aT = toMillis(a?.updatedAt) || toMillis(a?.createdAt);
+            const bT = toMillis(b?.updatedAt) || toMillis(b?.createdAt);
+            return bT - aT;
+          });
+          return next as any;
+        });
       }
 
       cancelEdit();
@@ -244,10 +296,7 @@ export default function TransactionsPage() {
 
           <div className="grid" style={{ gap: 6 }}>
             <label>סיכום לחודש</label>
-            <div
-              className="input"
-              style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}
-            >
+            <div className="input" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span className="muted">הכנסות:</span>
               <span>{formatILS(totals.income)}</span>
               <span className="muted" style={{ marginInlineStart: 8 }}>
@@ -295,7 +344,15 @@ export default function TransactionsPage() {
                 return (
                   <div key={it.id} className="card">
                     <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
-                      <div style={{ fontWeight: 700, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
                         <span>
                           {typeLabel(it)} - {formatILS(it.amount)}
                         </span>
@@ -339,16 +396,19 @@ export default function TransactionsPage() {
                               type="button"
                               onClick={() => onSaveEditToFirestore(it)}
                               disabled={isSavingThis}
+                              title="שמירת עריכה"
                             >
                               {isSavingThis ? "שומר..." : "שמור"}
                             </button>
+
                             <button
                               className="btn secondary"
                               type="button"
-                              onClick={cancelEdit}
+                              onClick={() => cancelEdit()}
                               disabled={isSavingThis}
+                              title="ביטול עריכה"
                             >
-                              ביטול
+                              בטל
                             </button>
                           </>
                         )}
@@ -357,13 +417,15 @@ export default function TransactionsPage() {
 
                     {!isEditing ? (
                       <>
-                        <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
-                          {it.date} - {it.category}
+                        <div className="muted" style={{ marginTop: 8 }}>
+                          {it.category || "ללא קטגוריה"}
                         </div>
-                      {it.description ? (
-                        <div style={{ marginTop: 8 }}>{it.description}</div>
-                      ) : null}
-
+                        <div className="muted" style={{ marginTop: 6 }}>
+                          {it.description || "ללא תיאור"}
+                        </div>
+                        <div className="muted" style={{ marginTop: 6 }}>
+                          {String(it.date || "")}
+                        </div>
                       </>
                     ) : (
                       <>
@@ -387,23 +449,6 @@ export default function TransactionsPage() {
                               className="input"
                               value={editCategory}
                               onChange={(e) => setEditCategory(e.target.value)}
-                              placeholder="לדוגמה: מזון"
-                              disabled={isSavingThis}
-                            />
-                          </div>
-                        </div>
-
-                        <div style={{ height: 10 }} />
-
-                        <div className="form-grid">
-                          <div className="grid" style={{ gap: 6 }}>
-                            <label>סכום</label>
-                            <input
-                              className="input"
-                              inputMode="decimal"
-                              value={editAmount}
-                              onChange={(e) => setEditAmount(e.target.value)}
-                              placeholder="לדוגמה: 120"
                               disabled={isSavingThis}
                             />
                           </div>
@@ -414,21 +459,23 @@ export default function TransactionsPage() {
                               className="input"
                               value={editDescription}
                               onChange={(e) => setEditDescription(e.target.value)}
-                              placeholder="לדוגמה: קניות בסופר"
                               disabled={isSavingThis}
+                            />
+                          </div>
+
+                          <div className="grid" style={{ gap: 6 }}>
+                            <label>סכום</label>
+                            <input
+                              className="input"
+                              value={editAmount}
+                              onChange={(e) => setEditAmount(e.target.value)}
+                              disabled={isSavingThis}
+                              inputMode="decimal"
                             />
                           </div>
                         </div>
 
-                        {editErr ? (
-                          <div style={{ color: "#fecdd3", fontSize: 12, marginTop: 10 }}>
-                            {editErr}
-                          </div>
-                        ) : null}
-
-                        <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-                          הערה: השמירה מתבצעת ל-Firestore. אם שינית לחודש אחר, התנועה תיעלם מהחודש הנוכחי.
-                        </div>
+                        {editErr ? <div style={{ color: "#fecdd3", fontSize: 12, marginTop: 8 }}>{editErr}</div> : null}
                       </>
                     )}
                   </div>

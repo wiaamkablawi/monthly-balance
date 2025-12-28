@@ -7,10 +7,25 @@ import { formatILS } from "../utils/money";
 import { auth, db } from "../services/firebase";
 import type { EntryDoc } from "../types/models";
 import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+} from "chart.js";
+
+import { Doughnut, Bar } from "react-chartjs-2";
+
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
+
+import {
   collection,
   deleteDoc,
   doc,
   getDocs,
+  limit,
   orderBy,
   query,
   updateDoc,
@@ -18,6 +33,14 @@ import {
   type QueryConstraint,
   writeBatch,
 } from "firebase/firestore";
+
+function toMillis(v: any): number {
+  if (!v) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v?.toMillis === "function") return v.toMillis();
+  if (typeof v?.seconds === "number") return v.seconds * 1000;
+  return 0;
+}
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -27,22 +50,18 @@ function typeLabel(e: EntryDoc): string {
 }
 
 function isFixedExpense(e: any): boolean {
-  return e?.type === "expense" && e?.subType === "fixed";
+  return e?.type === "expense" && (e?.subType === "fixed" || e?.subType === "fixed_realization");
 }
 
 function isVariableExpense(e: any): boolean {
-  return e?.type === "expense" && e?.subType !== "fixed";
+  return e?.type === "expense" && (e?.subType === "variable" || !e?.subType);
 }
 
 type AddKind = "income" | "expense_variable" | "expense_fixed";
 
-function kindToDoc(
-  kind: AddKind
-): { type: EntryDoc["type"]; subType?: EntryDoc["subType"] } {
+function kindToDoc(kind: AddKind): { type: EntryDoc["type"]; subType?: EntryDoc["subType"] } {
   if (kind === "income") return { type: "income" };
- if (kind === "expense_fixed") 
-  return { type: "expense", subType: "fixed_realization" };
-
+  if (kind === "expense_fixed") return { type: "expense", subType: "fixed_realization" };
   return { type: "expense", subType: "variable" };
 }
 
@@ -65,9 +84,50 @@ function AddEntryModal(props: {
 }) {
   const { open, onClose, monthKey, defaultDateISO, onSaved } = props;
 
+  const variableExpenseCategories = useMemo(
+    () => [
+      "מזון",
+      "דלק",
+      "בילוי עם הילדים",
+      "בילוי ומסעדות",
+      "מתנות",
+      "קניות אונליין",
+      "Maxstock",
+      "ביגוד והנעלה",
+      "בתי מרקחת וטיפוח",
+      "רכב",
+      "אלכוהול",
+      "סיגריות ונרגילה",
+      "תחזוקת הבית",
+      "אחר",
+    ],
+    []
+  );
+
+  const fixedExpenseCategories = useMemo(
+    () => [
+      "הלוואות ודיור",
+      "ביטוחים ובריאות",
+      "תקשורת ואינטרנט",
+      "תשתיות ותחבורה",
+      "מנויים דיגיטליים",
+      "בנקאות ואשראי",
+      "אחר",
+    ],
+    []
+  );
+
+  const incomeCategories = useMemo(() => ["משכורת", "החזר", "הכנסה נוספת", "אחר"], []);
+
+  const defaultCategoryForKind = (k: AddKind): string => {
+    if (k === "income") return "משכורת";
+    if (k === "expense_fixed") return "הלוואות ודיור";
+    return "מזון";
+  };
+
   const [kind, setKind] = useState<AddKind>("expense_variable");
   const [date, setDate] = useState<string>(defaultDateISO);
-  const [category, setCategory] = useState<string>("");
+  const [category, setCategory] = useState<string>(defaultCategoryForKind("expense_variable"));
   const [description, setDescription] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
 
@@ -80,59 +140,25 @@ function AddEntryModal(props: {
   const isIncome = kind === "income";
   const isExpense = kind !== "income";
 
-// ====== בתוך AddEntryModal ======
+  const categoryOptions = useMemo(() => {
+    if (isIncome) return incomeCategories;
+    if (kind === "expense_fixed") return fixedExpenseCategories;
+    return variableExpenseCategories;
+  }, [isIncome, kind, incomeCategories, fixedExpenseCategories, variableExpenseCategories]);
 
-const expenseCategories = useMemo(
-  () => [
-    "אלכוהול",
-    "בילוי ומסעדות",
-    "בילוי עם הילדים",
-    "בתי מרקחת וטיפוח",
-    "ביגוד והנעלה",
-    "דלק",
-    "מתנות",
-    "Maxstock",
-    "רכב",
-    "סיגריות ונרגילה",
-    "סופר",
-    "תחזוקת הבית",
-    "קניות אונליין",
-    "אחר"
-  ],
-  []
-);
-
-const incomeCategories = useMemo(
-  () => ["משכורת", "החזר", "הכנסה נוספת", "אחר"],
-  []
-);
-
-const categoryOptions = useMemo(
-  () => (isIncome ? incomeCategories : expenseCategories),
-  [isIncome, incomeCategories, expenseCategories]
-);
-
-// ברירת מחדל: "סופר" להוצאה
-useEffect(() => {
-  if (!open) return;
-
-  setErr("");
-
-  if (!date) {
-    setDate(defaultDateISO);
-  }
-
-  if (!isIncome && !category) {
-    setCategory("סופר");
-  }
-}, [open, defaultDateISO, isIncome, category, date]);
-
-
+  // איפוס יסודי בכל פתיחה של המודאל
   useEffect(() => {
     if (!open) return;
+
     setErr("");
-    if (!date) setDate(defaultDateISO);
-  }, [open, defaultDateISO, date]);
+    setKind("expense_variable");
+    setDate(defaultDateISO);
+    setCategory("מזון");
+    setDescription("");
+    setAmount("");
+    setInstallments(1);
+    setChargeDay(1);
+  }, [open, defaultDateISO]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -210,8 +236,8 @@ useEffect(() => {
         const ref = doc(collection(db, "records"));
         const payload: any = {
           type,
-          subType,
           date,
+          month: monthKey,
           monthKey,
           category,
           description: description.trim(),
@@ -220,6 +246,15 @@ useEffect(() => {
           userKey: userKeyFromEmail(user.email),
           createdAt: Date.now(),
         };
+
+        if (kind === "expense_fixed") {
+          payload.chargeDay = chargeDay;
+        }
+
+        if (subType) {
+          payload.subType = subType;
+        }
+
         batch.set(ref, payload);
         await batch.commit();
 
@@ -249,6 +284,7 @@ useEffect(() => {
           type,
           subType,
           date: chargeISO,
+          month: monthKeyFromISO(chargeISO),
           monthKey: monthKeyFromISO(chargeISO),
           category,
           description: description.trim(),
@@ -260,11 +296,11 @@ useEffect(() => {
           installmentIndex: i,
           installmentsGroupId: groupId,
         };
+
         batch.set(ref, payload);
       }
 
       await batch.commit();
-
       onSaved();
       onClose();
     } catch (ex: any) {
@@ -314,13 +350,7 @@ useEffect(() => {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <label>תאריך</label>
-            <input
-              className="input"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              disabled={saving}
-            />
+            <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} />
           </div>
 
           <div>
@@ -329,8 +359,13 @@ useEffect(() => {
               className="input"
               value={kind}
               onChange={(e) => {
-                setKind(e.target.value as AddKind);
-                setCategory("");
+                const nextKind = e.target.value as AddKind;
+                setKind(nextKind);
+                setCategory(defaultCategoryForKind(nextKind));
+                setDescription("");
+                setAmount("");
+                setInstallments(1);
+                setChargeDay(1);
                 setErr("");
               }}
               disabled={saving}
@@ -343,22 +378,12 @@ useEffect(() => {
 
           <div>
             <label>סכום</label>
-            <input
-              className="input"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={saving}
-            />
+            <input className="input" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
           </div>
 
           <div>
             <label>קטגוריה</label>
-            <select
-              className="input"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={saving}
-            >
+            <select className="input" value={category} onChange={(e) => setCategory(e.target.value)} disabled={saving}>
               <option value="">בחר</option>
               {categoryOptions.map((c) => (
                 <option key={c} value={c}>
@@ -370,12 +395,7 @@ useEffect(() => {
 
           <div style={{ gridColumn: "1 / -1" }}>
             <label>תיאור</label>
-            <input
-              className="input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              disabled={saving}
-            />
+            <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} />
           </div>
 
           {isExpense && kind === "expense_variable" ? (
@@ -405,6 +425,21 @@ useEffect(() => {
                 />
               </div>
             </>
+          ) : null}
+
+          {kind === "expense_fixed" ? (
+            <div>
+              <label>יום חיוב חודשי</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={28}
+                value={chargeDay}
+                onChange={(e) => setChargeDay(Number(e.target.value))}
+                disabled={saving}
+              />
+            </div>
           ) : null}
         </div>
 
@@ -439,7 +474,6 @@ export default function DashboardPage() {
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [isAddOpen, setIsAddOpen] = useState<boolean>(false);
 
-  // מצב עריכה (בדשבורד עצמו)
   const [editingId, setEditingId] = useState<string>("");
   const [editDate, setEditDate] = useState<string>("");
   const [editCategory, setEditCategory] = useState<string>("");
@@ -460,6 +494,63 @@ export default function DashboardPage() {
     return out;
   }, []);
 
+  async function ensureFixedRealizationsForMonth(targetMonthKey: string) {
+    const user = auth.currentUser;
+    if (!user?.email) return;
+
+    const uk = userKeyFromEmail(user.email);
+    if (uk !== "W") return;
+
+    const existingQ = query(
+      collection(db, "records"),
+      where("monthKey", "==", targetMonthKey),
+      where("subType", "==", "fixed_realization"),
+      limit(1)
+    );
+    const existingSnap = await getDocs(existingQ);
+    if (!existingSnap.empty) return;
+
+    const tmplSnap = await getDocs(query(collection(db, "fixed_templates")));
+    if (tmplSnap.empty) return;
+
+    const batch = writeBatch(db);
+
+    tmplSnap.forEach((t) => {
+      const data: any = t.data();
+
+      const chargeDayRaw = Number(data.chargeDay || 1);
+      const chargeDay = Math.max(1, Math.min(28, chargeDayRaw));
+
+      const dd = String(chargeDay).padStart(2, "0");
+      const dateISO = `${targetMonthKey}-${dd}`;
+
+      const docId = `fx__${targetMonthKey}__${uk}__${t.id}`;
+      const ref = doc(collection(db, "records"), docId);
+
+      batch.set(ref, {
+        type: "expense",
+        subType: "fixed_realization",
+        monthKey: targetMonthKey,
+        month: targetMonthKey,
+        date: dateISO,
+
+        category: String(data.category || "אחר"),
+        description: String(data.description || "").trim(),
+        amount: Number(data.amount || 0),
+
+        chargeDay,
+        templateId: t.id,
+        source: "fixed_template",
+
+        userEmail: user.email,
+        userKey: uk,
+        createdAt: Date.now(),
+      });
+    });
+
+    await batch.commit();
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -472,19 +563,59 @@ export default function DashboardPage() {
       setSavingEditId("");
 
       try {
-        const constraints: QueryConstraint[] = [
-          where("monthKey", "==", monthKey),
-          orderBy("createdAt", "desc"),
-        ];
+        await ensureFixedRealizationsForMonth(monthKey);
 
-        const q = query(collection(db, "records"), ...constraints);
+        const q = query(collection(db, "records"), where("monthKey", "==", monthKey));
         const snap = await getDocs(q);
-
         if (cancelled) return;
 
         const arr: EntryDoc[] = [];
-        snap.forEach((d) => arr.push({ id: d.id, ...(d.data() as any) }));
-        setItems(arr);
+        snap.forEach((d) => {
+          const data: any = d.data();
+          const mk = data.monthKey || data.month || monthKey;
+          arr.push({ id: d.id, ...data, monthKey: mk, month: data.month || mk });
+        });
+
+        const today = new Date();
+
+        const filtered = arr.filter((it: any) => {
+          if (!isFixedExpense(it)) return true;
+
+          const chargeDay = Number(it.chargeDay || 1);
+          const mk2 = it.monthKey || it.month || monthKey;
+
+          const [y, m] = String(mk2).split("-").map(Number);
+          const chargeDate = new Date(y, (m || 1) - 1, chargeDay);
+
+          return today >= chargeDate;
+        });
+
+        const normalizeDate = (v: any): string => {
+          if (!v) return "";
+          if (typeof v === "string") return v.trim().slice(0, 10);
+          if (typeof v?.toDate === "function") {
+            try {
+              return v.toDate().toISOString().slice(0, 10);
+            } catch {
+              return "";
+            }
+          }
+          if (v instanceof Date) return v.toISOString().slice(0, 10);
+          return "";
+        };
+
+        filtered.sort((a: any, b: any) => {
+          const ad = normalizeDate(a?.date);
+          const bd = normalizeDate(b?.date);
+
+          if (ad !== bd) return bd.localeCompare(ad);
+
+          const aT = toMillis(a?.updatedAt) || toMillis(a?.createdAt);
+          const bT = toMillis(b?.updatedAt) || toMillis(b?.createdAt);
+          return bT - aT;
+        });
+
+        setItems(filtered);
         setState("ready");
       } catch (e: any) {
         if (cancelled) return;
@@ -512,6 +643,44 @@ export default function DashboardPage() {
 
     const balance = income - (variable + fixed);
     return { income, variable, fixed, balance };
+  }, [items]);
+
+  const variableExpensesByCategory = useMemo(() => {
+    const m = new Map<string, number>();
+
+    items.forEach((it) => {
+      if (it.type === "expense" && !isFixedExpense(it)) {
+        const cat = it.category || "ללא קטגוריה";
+        const prev = m.get(cat) || 0;
+        m.set(cat, prev + Number(it.amount || 0));
+      }
+    });
+
+    return Array.from(m.entries()).map(([category, value]) => ({
+      category,
+      value,
+    }));
+  }, [items]);
+
+  const variableExpensesLastMonths = useMemo(() => {
+    const map = new Map<string, number>();
+
+    items.forEach((it) => {
+      if (it.type === "expense" && !isFixedExpense(it)) {
+        const mk = it.monthKey;
+        const prev = map.get(mk) || 0;
+        map.set(mk, prev + Number(it.amount || 0));
+      }
+    });
+
+    return Array.from(map.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 6)
+      .reverse()
+      .map(([month, value]) => ({
+        month,
+        value,
+      }));
   }, [items]);
 
   async function onDelete(id: string) {
@@ -602,23 +771,16 @@ export default function DashboardPage() {
       <div className="container">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div className="row" style={{ gap: 10, alignItems: "center" }}>
-            <button
-              className="btn"
-              onClick={() => setIsAddOpen(true)}
-              disabled={state === "loading"}
-            >
+            <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
               הוספת תנועה
             </button>
           </div>
 
           <div className="row" style={{ gap: 10, alignItems: "center" }}>
-            <div className="muted" style={{ fontSize: 12 }}>חודש</div>
-            <select
-              className="input"
-              style={{ width: 160 }}
-              value={monthKey}
-              onChange={(e) => setMonthKey(e.target.value)}
-            >
+            <div className="muted" style={{ fontSize: 12 }}>
+              חודש
+            </div>
+            <select className="input" style={{ width: 160 }} value={monthKey} onChange={(e) => setMonthKey(e.target.value)}>
               {months.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -634,47 +796,210 @@ export default function DashboardPage() {
 
         <div style={{ height: 14 }} />
 
-        <div className="kpi-grid">
-          <div className="kpi-card kpi-balance">
-            <div className="kpi-top">
-              <div className="kpi-title">יתרה חודשית</div>
-              <div className="kpi-icon">✓</div>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ marginBottom: 14 }}>
+            <div
+              className="kpi-card kpi-balance"
+              style={{
+                borderLeft:
+                  totals.balance > 0
+                    ? "6px solid rgba(34,197,94,0.95)"
+                    : totals.balance < 0
+                    ? "6px solid rgba(239,68,68,0.95)"
+                    : undefined,
+              }}
+            >
+              <div className="kpi-top">
+                <div className="kpi-title">יתרה חודשית</div>
+                <div className="kpi-icon">✓</div>
+              </div>
+
+              <div
+                className="kpi-value"
+                style={{
+                  color:
+                    totals.balance > 0
+                      ? "rgba(34,197,94,0.95)"
+                      : totals.balance < 0
+                      ? "rgba(239,68,68,0.95)"
+                      : undefined,
+                }}
+              >
+                {formatILS(totals.balance)}
+              </div>
+
+              <div className="kpi-sub muted">הכנסות פחות הוצאות</div>
             </div>
-            <div className="kpi-value">{formatILS(totals.balance)}</div>
-            <div className="kpi-sub muted">הכנסות פחות הוצאות</div>
           </div>
 
-          <div className="kpi-card kpi-variable">
-            <div className="kpi-top">
-              <div className="kpi-title">הוצאות משתנות</div>
-              <div className="kpi-icon">≈</div>
+          <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <div className="kpi-card kpi-variable">
+              <div className="kpi-top">
+                <div className="kpi-title">הוצאות משתנות</div>
+                <div className="kpi-icon">≈</div>
+              </div>
+              <div className="kpi-value">{formatILS(totals.variable)}</div>
+              <div className="kpi-sub muted">קניות, דלק, בילויים</div>
             </div>
-            <div className="kpi-value">{formatILS(totals.variable)}</div>
-            <div className="kpi-sub muted">קניות, דלק, בילויים</div>
+
+            <div className="kpi-card kpi-fixed">
+              <div className="kpi-top">
+                <div className="kpi-title">הוצאות קבועות</div>
+                <div className="kpi-icon">○</div>
+              </div>
+              <div className="kpi-value">{formatILS(totals.fixed)}</div>
+              <div className="kpi-sub muted">תשלומים חוזרים וקבועים</div>
+            </div>
+
+            <div className="kpi-card kpi-income">
+              <div className="kpi-top">
+                <div className="kpi-title">הכנסות</div>
+                <div className="kpi-icon">+</div>
+              </div>
+              <div className="kpi-value">{formatILS(totals.income)}</div>
+              <div className="kpi-sub muted">סך כל ההכנסות בחודש</div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
+            gap: 24,
+            marginTop: 24,
+            marginBottom: 24,
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              background: "linear-gradient(180deg, #ffffff, #f8fafc)",
+              borderRadius: 20,
+              boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
+            }}
+          >
+            <h3 style={{ marginBottom: 12 }}>הוצאות משתנות לפי קטגוריות</h3>
+
+            {variableExpensesByCategory.length === 0 ? (
+              <div className="muted">אין נתונים להצגה</div>
+            ) : (
+              <div style={{ filter: "drop-shadow(0px 6px 10px rgba(0,0,0,0.25))" }}>
+                <div style={{ filter: "drop-shadow(0 18px 28px rgba(0,0,0,0.28))" }}>
+                  <Doughnut
+                    data={{
+                      labels: variableExpensesByCategory.map((d) => d.category),
+                      datasets: [
+                        {
+                          data: variableExpensesByCategory.map((d) => d.value),
+                          backgroundColor: [
+                            "#dc2626",
+                            "#ea580c",
+                            "#ca8a04",
+                            "#16a34a",
+                            "#0891b2",
+                            "#2563eb",
+                            "#7c3aed",
+                            "#be185d",
+                          ],
+                          borderWidth: 0,
+                          hoverOffset: 18,
+                        },
+                      ],
+                    }}
+                    options={{
+                      cutout: "48%",
+                      rotation: -40,
+                      animation: {
+                        animateRotate: true,
+                        duration: 900,
+                      },
+                      plugins: {
+                        legend: {
+                          position: "bottom",
+                          labels: {
+                            padding: 18,
+                          },
+                        },
+                        tooltip: {
+                          callbacks: {
+                            label: (ctx) => {
+                              const value = ctx.raw as number;
+                              return `${ctx.label}: ${formatILS(value)}`;
+                            },
+                          },
+                        },
+                      },
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="kpi-card kpi-fixed">
-            <div className="kpi-top">
-              <div className="kpi-title">הוצאות קבועות</div>
-              <div className="kpi-icon">○</div>
-            </div>
-            <div className="kpi-value">{formatILS(totals.fixed)}</div>
-            <div className="kpi-sub muted">תשלומים חוזרים וקבועים</div>
-          </div>
+          <div
+            className="card"
+            style={{
+              background: "linear-gradient(180deg, #ffffff, #f8fafc)",
+              borderRadius: 20,
+              boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
+            }}
+          >
+            <h3 style={{ marginBottom: 12 }}>הוצאות משתנות - השוואה חודשית</h3>
 
-          <div className="kpi-card kpi-income">
-            <div className="kpi-top">
-              <div className="kpi-title">הכנסות</div>
-              <div className="kpi-icon">+</div>
-            </div>
-            <div className="kpi-value">{formatILS(totals.income)}</div>
-            <div className="kpi-sub muted">סך כל ההכנסות בחודש</div>
+            {variableExpensesLastMonths.length === 0 ? (
+              <div className="muted">אין נתונים להצגה</div>
+            ) : (
+              <Bar
+                data={{
+                  labels: variableExpensesLastMonths.map((d) => d.month),
+                  datasets: [
+                    {
+                      data: variableExpensesLastMonths.map((d) => d.value),
+                      backgroundColor: "rgba(239,68,68,0.85)",
+                      borderRadius: 14,
+                      borderSkipped: false,
+                    },
+                  ],
+                }}
+                options={{
+                  responsive: true,
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                      callbacks: {
+                        label: (ctx) => formatILS(ctx.raw as number),
+                      },
+                    },
+                  },
+                  elements: {
+                    bar: {
+                      borderWidth: 0,
+                    },
+                  },
+                  scales: {
+                    y: {
+                      ticks: {
+                        callback: (v) => formatILS(Number(v)),
+                      },
+                    },
+                  },
+                }}
+              />
+            )}
           </div>
         </div>
 
         <div style={{ height: 18 }} />
 
-        <div className="card">
+        <div
+          className="card"
+          style={{
+            background: "linear-gradient(180deg, #ffffff, #f8fafc)",
+            borderRadius: 20,
+            boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
+          }}
+        >
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontWeight: 900 }}>תנועות</div>
             {err ? <div className="error">{err}</div> : null}
@@ -682,13 +1007,9 @@ export default function DashboardPage() {
 
           <div style={{ height: 10 }} />
 
-          {state === "loading" ? (
-            <div className="muted">טוען...</div>
-          ) : null}
+          {state === "loading" ? <div className="muted">טוען...</div> : null}
 
-          {state !== "loading" && items.length === 0 ? (
-            <div className="muted">אין נתונים לחודש הזה.</div>
-          ) : null}
+          {state !== "loading" && items.length === 0 ? <div className="muted">אין נתונים לחודש הזה.</div> : null}
 
           <div style={{ display: "grid", gap: 10 }}>
             {items.map((it) => {
@@ -704,36 +1025,53 @@ export default function DashboardPage() {
                         ? "4px solid rgba(34,197,94,0.95)"
                         : isFixedExpense(it)
                         ? "4px solid rgba(168,85,247,0.95)"
-                        : "4px solid rgba(6,182,212,0.95)",
+                        : "4px solid rgba(239,68,68,0.95)",
                   }}
                 >
                   {!isEditing ? (
                     <>
-                      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {typeLabel(it)} - {formatILS(Number(it.amount || 0))}
+                      <div
+                        className="row"
+                        style={{
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: 12,
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              fontWeight: 900,
+                              color:
+                                it.type === "income"
+                                  ? "rgba(34,197,94,0.95)"
+                                  : isFixedExpense(it)
+                                  ? "rgba(168,85,247,0.95)"
+                                  : "rgba(239,68,68,0.95)",
+                            }}
+                          >
+                            {it.category || "ללא קטגוריה"} - {formatILS(Number(it.amount || 0))}
+                          </div>
+
+                          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                            {typeLabel(it)}
+                            {isFixedExpense(it) ? " קבועה" : it.type === "expense" ? " משתנה" : ""}
+                            {it.description ? ` · ${it.description}` : ""}
+                          </div>
                         </div>
-                        <div className="muted" style={{ fontSize: 12 }}>
-                          {it.date}
+
+                        <div className="row" style={{ gap: 6 }}>
+                          <button className="btn secondary" onClick={() => startEdit(it)}>
+                            ערוך
+                          </button>
+                          <button className="btn danger" onClick={() => onDelete(it.id || "")} disabled={deletingId === it.id}>
+                            {deletingId === it.id ? "מוחק..." : "מחיקה"}
+                          </button>
                         </div>
                       </div>
 
-                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                        {it.category || "ללא קטגוריה"}
-                        {it.description ? ` - ${it.description}` : ""}
-                      </div>
-
-                      <div className="row" style={{ gap: 8, marginTop: 10 }}>
-                        <button className="btn secondary" onClick={() => startEdit(it)}>
-                          ערוך
-                        </button>
-                        <button
-                          className="btn danger"
-                          onClick={() => onDelete(it.id || "")}
-                          disabled={deletingId === it.id}
-                        >
-                          {deletingId === it.id ? "מוחק..." : "מחיקה"}
-                        </button>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                        {it.date}
                       </div>
                     </>
                   ) : (
@@ -741,50 +1079,29 @@ export default function DashboardPage() {
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                         <div>
                           <label>תאריך</label>
-                          <input
-                            className="input"
-                            type="date"
-                            value={editDate}
-                            onChange={(e) => setEditDate(e.target.value)}
-                          />
+                          <input className="input" type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
                         </div>
 
                         <div>
                           <label>קטגוריה</label>
-                          <input
-                            className="input"
-                            value={editCategory}
-                            onChange={(e) => setEditCategory(e.target.value)}
-                          />
+                          <input className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)} />
                         </div>
 
                         <div>
                           <label>סכום</label>
-                          <input
-                            className="input"
-                            value={editAmount}
-                            onChange={(e) => setEditAmount(e.target.value)}
-                          />
+                          <input className="input" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
                         </div>
 
                         <div>
                           <label>תיאור</label>
-                          <input
-                            className="input"
-                            value={editDesc}
-                            onChange={(e) => setEditDesc(e.target.value)}
-                          />
+                          <input className="input" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
                         </div>
                       </div>
 
                       {editErr ? <div className="error" style={{ marginTop: 8 }}>{editErr}</div> : null}
 
                       <div className="row" style={{ gap: 8, marginTop: 10 }}>
-                        <button
-                          className="btn"
-                          onClick={() => saveEdit(it)}
-                          disabled={savingEditId === it.id}
-                        >
+                        <button className="btn" onClick={() => saveEdit(it)} disabled={savingEditId === it.id}>
                           {savingEditId === it.id ? "שומר..." : "שמור"}
                         </button>
                         <button className="btn secondary" onClick={cancelEdit}>

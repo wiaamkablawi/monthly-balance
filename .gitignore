@@ -1,4 +1,43 @@
-node_modules
-dist
+# ===============================
+# Secrets / Environment
+# ===============================
 .env
+serviceAccountKey.json
+
+# ===============================
+# Dependencies
+# ===============================
+node_modules/
+
+# ===============================
+# Build output
+# ===============================
+dist/
+
+# ===============================
+# Firebase local files
+# ===============================
+.firebase/
+
+# ===============================
+# Import / Migration scripts
+# ===============================
+*.cjs
+migrate*.js
+import*.ts
+import*.js
+fix-*.cjs
+delete-month.cjs
+generate-fixed-month.cjs
+
+# ===============================
+# Data / exports
+# ===============================
+*.csv
+*.xlsx
+*.zip
+
+# ===============================
+# OS / misc
+# ===============================
 .DS_Store
