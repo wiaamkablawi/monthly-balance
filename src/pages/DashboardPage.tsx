@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { userKeyFromEmail } from "../services/authService";
 import AppLayout from "../app/layout/AppLayout";
 import { currentMonthKey, monthKeyFromISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
 import { auth, db } from "../services/firebase";
 import type { EntryDoc } from "../types/models";
+
 import {
   Chart as ChartJS,
   ArcElement,
@@ -15,7 +15,6 @@ import {
   LinearScale,
   BarElement,
 } from "chart.js";
-
 import { Doughnut, Bar } from "react-chartjs-2";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
@@ -26,11 +25,9 @@ import {
   doc,
   getDocs,
   limit,
-  orderBy,
   query,
   updateDoc,
   where,
-  type QueryConstraint,
   writeBatch,
 } from "firebase/firestore";
 
@@ -463,8 +460,6 @@ function AddEntryModal(props: {
 }
 
 export default function DashboardPage() {
-  const nav = useNavigate();
-
   const [monthKey, setMonthKey] = useState<string>(currentMonthKey());
   const [state, setState] = useState<LoadState>("idle");
   const [err, setErr] = useState<string>("");
@@ -481,6 +476,8 @@ export default function DashboardPage() {
   const [editAmount, setEditAmount] = useState<string>("");
   const [savingEditId, setSavingEditId] = useState<string>("");
   const [editErr, setEditErr] = useState<string>("");
+
+  const [variableExpensesTrend, setVariableExpensesTrend] = useState<{ month: string; value: number }[]>([]);
 
   const months = useMemo(() => {
     const out: string[] = [];
@@ -565,16 +562,30 @@ export default function DashboardPage() {
       try {
         await ensureFixedRealizationsForMonth(monthKey);
 
-        const q = query(collection(db, "records"), where("monthKey", "==", monthKey));
-        const snap = await getDocs(q);
-        if (cancelled) return;
+      // תופסים גם רשומות ישנות שיש להן month בלי monthKey
+const qByMonthKey = query(collection(db, "records"), where("monthKey", "==", monthKey));
+const qByMonth = query(collection(db, "records"), where("month", "==", monthKey));
 
-        const arr: EntryDoc[] = [];
-        snap.forEach((d) => {
-          const data: any = d.data();
-          const mk = data.monthKey || data.month || monthKey;
-          arr.push({ id: d.id, ...data, monthKey: mk, month: data.month || mk });
-        });
+const [snapKey, snapMonth] = await Promise.all([getDocs(qByMonthKey), getDocs(qByMonth)]);
+if (cancelled) return;
+
+const seen = new Set<string>();
+const arr: EntryDoc[] = [];
+
+const pushSnap = (snap: any) => {
+  snap.forEach((d: any) => {
+    if (seen.has(d.id)) return;
+    seen.add(d.id);
+
+    const data: any = d.data();
+    const mk = data.monthKey || data.month || monthKey;
+    arr.push({ id: d.id, ...data, monthKey: mk, month: data.month || mk });
+  });
+};
+
+pushSnap(snapKey);
+pushSnap(snapMonth);
+
 
         const today = new Date();
 
@@ -630,6 +641,82 @@ export default function DashboardPage() {
     };
   }, [monthKey, reloadKey]);
 
+  // מגמת הוצאות משתנות ל-6 חודשים אחרונים
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadVariableExpensesTrend() {
+      try {
+        const now = new Date();
+        const last6Months: string[] = [];
+
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          last6Months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+        }
+
+        // איחוד תוצאות משתי שאילתות: month וגם monthKey (כדי לתפוס רשומות ישנות)
+        const qByMonth = query(
+          collection(db, "records"),
+          where("type", "==", "expense"),
+          where("month", "in", last6Months)
+        );
+
+        const qByMonthKey = query(
+          collection(db, "records"),
+          where("type", "==", "expense"),
+          where("monthKey", "in", last6Months)
+        );
+
+        const [snap1, snap2] = await Promise.all([getDocs(qByMonth), getDocs(qByMonthKey)]);
+        if (cancelled) return;
+
+        const seen = new Set<string>();
+        const docs: any[] = [];
+
+        snap1.forEach((d) => {
+          if (seen.has(d.id)) return;
+          seen.add(d.id);
+          docs.push({ id: d.id, ...d.data() });
+        });
+
+        snap2.forEach((d) => {
+          if (seen.has(d.id)) return;
+          seen.add(d.id);
+          docs.push({ id: d.id, ...d.data() });
+        });
+
+        const map = new Map<string, number>();
+        last6Months.forEach((m) => map.set(m, 0));
+
+        docs.forEach((data) => {
+          if (isFixedExpense(data)) return;
+
+          const mk = String(data.monthKey || data.month || "").trim();
+          if (!mk) return;
+          if (!map.has(mk)) return;
+
+          map.set(mk, (map.get(mk) || 0) + Number(data.amount || 0));
+        });
+
+        setVariableExpensesTrend(
+          last6Months.map((m) => ({
+            month: m,
+            value: map.get(m) || 0,
+          }))
+        );
+      } catch {
+        setVariableExpensesTrend([]);
+      }
+    }
+
+    loadVariableExpensesTrend();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+
   const totals = useMemo(() => {
     let income = 0;
     let variable = 0;
@@ -660,27 +747,6 @@ export default function DashboardPage() {
       category,
       value,
     }));
-  }, [items]);
-
-  const variableExpensesLastMonths = useMemo(() => {
-    const map = new Map<string, number>();
-
-    items.forEach((it) => {
-      if (it.type === "expense" && !isFixedExpense(it)) {
-        const mk = it.monthKey;
-        const prev = map.get(mk) || 0;
-        map.set(mk, prev + Number(it.amount || 0));
-      }
-    });
-
-    return Array.from(map.entries())
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .slice(0, 6)
-      .reverse()
-      .map(([month, value]) => ({
-        month,
-        value,
-      }));
   }, [items]);
 
   async function onDelete(id: string) {
@@ -733,11 +799,14 @@ export default function DashboardPage() {
     setSavingEditId(it.id);
     setEditErr("");
 
+    const mk = monthKeyFromISO(editDate);
+
     try {
       const ref = doc(db, "records", it.id);
       await updateDoc(ref, {
         date: editDate,
-        monthKey: monthKeyFromISO(editDate),
+        monthKey: mk,
+        month: mk,
         category: editCategory,
         description: editDesc,
         amount: n,
@@ -749,7 +818,8 @@ export default function DashboardPage() {
             ? {
                 ...x,
                 date: editDate,
-                monthKey: monthKeyFromISO(editDate),
+                monthKey: mk,
+                month: mk,
                 category: editCategory,
                 description: editDesc,
                 amount: n,
@@ -832,7 +902,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+          <div className="kpi-grid">
             <div className="kpi-card kpi-variable">
               <div className="kpi-top">
                 <div className="kpi-title">הוצאות משתנות</div>
@@ -947,15 +1017,15 @@ export default function DashboardPage() {
           >
             <h3 style={{ marginBottom: 12 }}>הוצאות משתנות - השוואה חודשית</h3>
 
-            {variableExpensesLastMonths.length === 0 ? (
+            {variableExpensesTrend.length === 0 ? (
               <div className="muted">אין נתונים להצגה</div>
             ) : (
               <Bar
                 data={{
-                  labels: variableExpensesLastMonths.map((d) => d.month),
+                  labels: variableExpensesTrend.map((d) => d.month),
                   datasets: [
                     {
-                      data: variableExpensesLastMonths.map((d) => d.value),
+                      data: variableExpensesTrend.map((d) => d.value),
                       backgroundColor: "rgba(239,68,68,0.85)",
                       borderRadius: 14,
                       borderSkipped: false,
@@ -973,11 +1043,16 @@ export default function DashboardPage() {
                     },
                   },
                   elements: {
-                    bar: {
-                      borderWidth: 0,
-                    },
+                    bar: { borderWidth: 0 },
                   },
                   scales: {
+                    x: {
+                      ticks: {
+                        autoSkip: false,
+                        maxRotation: 0,
+                        minRotation: 0,
+                      },
+                    },
                     y: {
                       ticks: {
                         callback: (v) => formatILS(Number(v)),
@@ -1098,7 +1173,11 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      {editErr ? <div className="error" style={{ marginTop: 8 }}>{editErr}</div> : null}
+                      {editErr ? (
+                        <div className="error" style={{ marginTop: 8 }}>
+                          {editErr}
+                        </div>
+                      ) : null}
 
                       <div className="row" style={{ gap: 8, marginTop: 10 }}>
                         <button className="btn" onClick={() => saveEdit(it)} disabled={savingEditId === it.id}>
