@@ -17,8 +17,6 @@
 - `main` נפרס לערוץ `live`
 - `dev` נפרס לערוץ `dev`
 
-כך אפשר לראות ריצות גם כשעובדים בפועל על `dev`.
-
 ## מה עושים במסך Secrets
 
 ודאי שקיים Secret בשם `FIREBASE_TOKEN`.
@@ -50,4 +48,12 @@ git push
 ```
 
 3. היכנסי ל-**Actions** ב-GitHub וודאי שה-workflow "Deploy to Firebase Hosting" רץ.
-4. אם דחפת ל-`dev` תראי פריסה לערוץ `dev`; אם ל-`main` תראי פריסה לערוץ `live`.
+
+## פתרון תקלות מהיר
+
+אם הריצה נכשלת:
+
+1. פתחי את ה-run האחרון ב-Actions.
+2. בדקי את הלוגים של השלב "Deploy to Firebase Hosting".
+3. ודאי ש-`FIREBASE_TOKEN` לא פג תוקף (אפשר לייצר חדש עם `firebase login:ci`).
+4. ודאי שלמשתמש שהפיק את ה-token יש הרשאות לפרויקט `monthly-balance-548d1`.
