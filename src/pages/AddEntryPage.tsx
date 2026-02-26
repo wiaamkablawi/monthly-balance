@@ -4,7 +4,7 @@ import { monthKeyFromISO, todayISO } from "../utils/dates";
 import { auth, db } from "../services/firebase";
 import { userKeyFromEmail } from "../services/authService";
 import type { EntryDoc, EntrySubType, EntryType } from "../types/models";
-import { collection, doc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDocs, limit, query, where, writeBatch } from "firebase/firestore";
 
 type EntryKind = "expense_variable" | "income";
 
@@ -21,6 +21,121 @@ const EXPENSE_CATEGORIES = [
 ];
 
 const INCOME_CATEGORIES = ["משכורת", "החזר", "מתנה", "אחר"];
+
+type ParsedExpense = {
+  date: string;
+  amount: number;
+  category: string;
+  description: string;
+};
+
+const OCR_API_ENDPOINT = "https://api.ocr.space/parse/image";
+const OCR_API_KEY = "helloworld";
+
+const CATEGORY_KEYWORDS: Array<{ category: string; keywords: string[] }> = [
+  { category: "מזון", keywords: ["סופר", "מזון", "מסעד", "קפה", "מכולת", "market", "food"] },
+  { category: "רכב", keywords: ["דלק", "פז", "סונול", "רכב", "חניה", "כביש", "fuel", "parking"] },
+  { category: "חשבונות", keywords: ["חשמל", "מים", "ארנונה", "גז", "חשבון", "bill"] },
+  { category: "תקשורת", keywords: ["סלולר", "אינטרנט", "טלפון", "פרטנר", "סלקום", "פלאפון"] },
+  { category: "בריאות", keywords: ["בית מרקחת", "קופת", "רופא", "pharm", "clinic"] },
+  { category: "בילויים", keywords: ["קולנוע", "בילוי", "netflix", "spotify", "game"] },
+  { category: "דיור", keywords: ["שכירות", "משכנת", "ועד בית", "home", "rent"] },
+];
+
+function detectCategory(text: string): string {
+  const normalized = text.toLowerCase();
+  for (const entry of CATEGORY_KEYWORDS) {
+    if (entry.keywords.some((keyword) => normalized.includes(keyword))) return entry.category;
+  }
+  return "אחר";
+}
+
+function normalizeAmount(raw: string): number | null {
+  const cleaned = raw.replace(/[^\d,.-]/g, "").replace(/,/g, "");
+  const value = Number(cleaned);
+  if (!Number.isFinite(value)) return null;
+  return Math.abs(value);
+}
+
+function parseDateFromLine(rawLine: string): string | null {
+  const dateMatch = rawLine.match(/(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?/);
+  if (!dateMatch) return null;
+
+  const day = Number(dateMatch[1]);
+  const month = Number(dateMatch[2]);
+  let year = Number(dateMatch[3]);
+
+  if (!year) {
+    year = new Date().getFullYear();
+  } else if (year < 100) {
+    year += 2000;
+  }
+
+  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function parseExpensesFromOCRText(text: string): ParsedExpense[] {
+  const out: ParsedExpense[] = [];
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const date = parseDateFromLine(line);
+    if (!date) continue;
+
+    const amountMatches = line.match(/-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})|-?\d+(?:[.,]\d{2})/g);
+    if (!amountMatches || amountMatches.length === 0) continue;
+
+    const amountRaw = amountMatches[amountMatches.length - 1];
+    const amount = normalizeAmount(amountRaw);
+    if (!amount || amount <= 0) continue;
+
+    const description = line.slice(0, Math.max(0, line.lastIndexOf(amountRaw))).trim() || "עסקה מכרטיס אשראי";
+
+    out.push({
+      date,
+      amount,
+      category: detectCategory(description),
+      description,
+    });
+  }
+
+  return out;
+}
+
+async function fileSha256(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  const bytes = Array.from(new Uint8Array(digest));
+  return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function extractTextFromImage(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("apikey", OCR_API_KEY);
+  form.append("language", "heb");
+  form.append("isOverlayRequired", "false");
+  form.append("file", file);
+
+  const res = await fetch(OCR_API_ENDPOINT, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) {
+    throw new Error("שירות ה-OCR לא זמין כרגע.");
+  }
+
+  const json = await res.json();
+  const parsedText = String(json?.ParsedResults?.[0]?.ParsedText || "").trim();
+  if (!parsedText) {
+    throw new Error("לא הצלחנו לזהות טקסט בתמונה.");
+  }
+  return parsedText;
+}
 
 function clampInt(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min;
@@ -72,6 +187,8 @@ export default function AddEntryPage() {
   const [err, setErr] = useState<string>("");
   const [ok, setOk] = useState<string>("");
   const [saving, setSaving] = useState<boolean>(false);
+  const [uploadingImage, setUploadingImage] = useState<boolean>(false);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
 
   const categories = useMemo(() => {
     return kind === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
@@ -243,10 +360,97 @@ export default function AddEntryPage() {
     }
   }
 
+  async function onImportImage() {
+    if (!selectedImage) {
+      setErr("נא לבחור תמונה לפני ניתוח.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+      setErr("אין משתמש מחובר. אנא התחבר מחדש.");
+      return;
+    }
+
+    setUploadingImage(true);
+    resetMessages();
+
+    try {
+      const hash = await fileSha256(selectedImage);
+      const alreadyUploaded = await getDocs(query(collection(db, "records"), where("importHash", "==", hash), limit(1)));
+
+      if (!alreadyUploaded.empty) {
+        setErr("התמונה הזו כבר הועלתה בעבר, לא נוספו שורות חדשות.");
+        return;
+      }
+
+      const text = await extractTextFromImage(selectedImage);
+      const parsedExpenses = parseExpensesFromOCRText(text);
+
+      if (!parsedExpenses.length) {
+        setErr("לא נמצאו שורות הוצאה תקינות בתמונה.");
+        return;
+      }
+
+      const batch = writeBatch(db);
+      const createdAtBase = Date.now();
+
+      parsedExpenses.forEach((expense, index) => {
+        const payload: Omit<EntryDoc, "id"> = {
+          type: "expense",
+          subType: "variable",
+          date: expense.date,
+          monthKey: monthKeyFromISO(expense.date),
+          category: expense.category,
+          description: expense.description,
+          amount: expense.amount,
+          userKey: userKeyFromEmail(user.email as string),
+          createdAt: createdAtBase + index,
+          createdBy: user.email as string,
+          importHash: hash,
+          importSource: `image:${selectedImage.name}`,
+        } as any;
+
+        const ref = doc(collection(db, "records"));
+        batch.set(ref, payload as any);
+      });
+
+      await batch.commit();
+      setOk(`היבוא הושלם בהצלחה. נוספו ${parsedExpenses.length} הוצאות.`);
+      setSelectedImage(null);
+    } catch (ex: any) {
+      setErr(ex?.message || "שגיאה בניתוח ושמירת נתוני התמונה.");
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
   return (
     <AppLayout title="הוספה">
       <div className="card">
         <h2>הוספת תנועה</h2>
+
+        <div className="grid" style={{ gap: 8, marginBottom: 12 }}>
+          <label>יבוא הוצאות מתמונה (למשל חיובי אשראי)</label>
+          <input
+            className="input"
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              setSelectedImage(e.target.files?.[0] || null);
+              resetMessages();
+            }}
+            disabled={saving || uploadingImage}
+          />
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <div className="muted" style={{ fontSize: 12 }}>
+              המערכת תסרוק את הטקסט בתמונה ותוסיף שורות: תאריך, סכום וקטגוריה משוערת.
+            </div>
+            <button className="btn secondary" type="button" onClick={onImportImage} disabled={saving || uploadingImage}>
+              {uploadingImage ? "מנתח תמונה..." : "נתח והוסף הוצאות"}
+            </button>
+          </div>
+        </div>
 
         <form onSubmit={onSubmit} className="grid" style={{ gap: 12 }}>
           <div className="form-grid">
