@@ -2,7 +2,7 @@
 
 ## פרסום אוטומטי לאתר אחרי כל push ל-GitHub
 
-הפרויקט מוגדר עם GitHub Actions כך שכל `push` לענף `main` יבצע אוטומטית:
+הפרויקט מוגדר עם GitHub Actions כך שכל `push` לענפים `main` או `dev` יבצע אוטומטית:
 
 1. התקנת תלויות (`npm ci`)
 2. בנייה (`npm run build`)
@@ -12,19 +12,20 @@
 
 - `.github/workflows/deploy-firebase.yml`
 
-## מה עושים במסך ששלחת (Secrets)
+## תמיכה ב-main וב-dev
 
-בצילום המסך שלך כבר קיים secret בשם `FIREBASE_TOKEN` — וזה בדיוק מה שה-workflow משתמש בו עכשיו.
+- `main` נפרס לערוץ `live`
+- `dev` נפרס לערוץ `dev`
 
-מה שנשאר לבצע:
+כך אפשר לראות ריצות גם כשעובדים בפועל על `dev`.
 
-1. ודאי שהשם של ה-secret הוא בדיוק `FIREBASE_TOKEN`.
-2. ודאי שהערך הוא Firebase CI Token תקין (מטוקן של `firebase login:ci`).
-3. שמרי והמשיכי ל-push לענף `main`.
+## מה עושים במסך Secrets
+
+ודאי שקיים Secret בשם `FIREBASE_TOKEN`.
 
 ## איך מייצרים FIREBASE_TOKEN (אם צריך חדש)
 
-במחשב מקומי עם Firebase CLI מותקן:
+ב-Codespaces terminal או במחשב מקומי עם Firebase CLI:
 
 ```bash
 firebase login:ci
@@ -32,9 +33,21 @@ firebase login:ci
 
 להעתיק את הטוקן שמתקבל ולהדביק אותו ב-GitHub Secret בשם `FIREBASE_TOKEN`.
 
-## בדיקה מהירה
+## בדיקה מהירה (Codespaces)
 
-1. בצעי commit + push לענף `main`.
-2. היכנסי ל-**Actions** ב-GitHub.
-3. ודאי שה-workflow "Deploy to Firebase Hosting" עבר בהצלחה.
-4. בסיום, האתר יתעדכן אוטומטית.
+1. בדקי על איזה ענף את נמצאת:
+
+```bash
+git branch --show-current
+```
+
+2. בצעי commit + push:
+
+```bash
+git add .
+git commit -m "Trigger Firebase deploy workflow"
+git push
+```
+
+3. היכנסי ל-**Actions** ב-GitHub וודאי שה-workflow "Deploy to Firebase Hosting" רץ.
+4. אם דחפת ל-`dev` תראי פריסה לערוץ `dev`; אם ל-`main` תראי פריסה לערוץ `live`.

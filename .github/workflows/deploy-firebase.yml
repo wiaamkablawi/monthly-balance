@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
   workflow_dispatch:
 
 jobs:
@@ -26,10 +27,10 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Deploy to Firebase Hosting
+      - name: Deploy branch to Firebase Hosting channel
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseToken: ${{ secrets.FIREBASE_TOKEN }}
-          channelId: live
+          channelId: ${{ github.ref_name == 'main' && 'live' || 'dev' }}
           projectId: monthly-balance-548d1
