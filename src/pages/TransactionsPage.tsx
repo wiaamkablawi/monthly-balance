@@ -9,7 +9,6 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  orderBy,
   query,
   updateDoc,
   where,
@@ -22,6 +21,8 @@ export default function TransactionsPage() {
   const [state, setState] = useState<LoadState>("idle");
   const [err, setErr] = useState("");
   const [items, setItems] = useState<EntryDoc[]>([]);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "income" | "expense">("all");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState("");
@@ -30,6 +31,28 @@ export default function TransactionsPage() {
   const [editAmount, setEditAmount] = useState("");
 
   const openSwipeId = useRef<string | null>(null);
+
+  const filteredItems = items.filter((it) => {
+    if (typeFilter !== "all" && it.type !== typeFilter) return false;
+    if (!search.trim()) return true;
+
+    const q = search.trim().toLowerCase();
+    return (
+      String(it.category || "").toLowerCase().includes(q) ||
+      String(it.description || "").toLowerCase().includes(q) ||
+      String(it.date || "").toLowerCase().includes(q)
+    );
+  });
+
+  const totals = filteredItems.reduce(
+    (acc, it) => {
+      const amount = Number(it.amount || 0);
+      if (it.type === "income") acc.income += amount;
+      else acc.expense += amount;
+      return acc;
+    },
+    { income: 0, expense: 0 }
+  );
 
   /* =========================
      Load data
@@ -202,25 +225,53 @@ await updateDoc(doc(db, "records", it.id), {
   return (
     <AppLayout title="תנועות">
       <div className="card">
-        <label>חודש</label>
-        <select
+        <div className="form-grid">
+          <div>
+            <label>חודש</label>
+            <select className="input" value={monthKey} onChange={(e) => setMonthKey(e.target.value)}>
+              {Array.from({ length: 24 }).map((_, i) => {
+                const d = new Date();
+                d.setMonth(d.getMonth() - i);
+                const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                return (
+                  <option key={mk} value={mk}>
+                    {mk}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          <div>
+            <label>סוג תנועה</label>
+            <select
+              className="input"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value as "all" | "income" | "expense")}
+            >
+              <option value="all">הכול</option>
+              <option value="income">הכנסות</option>
+              <option value="expense">הוצאות</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ height: 10 }} />
+
+        <label>חיפוש מהיר</label>
+        <input
           className="input"
-          value={monthKey}
-          onChange={(e) => setMonthKey(e.target.value)}
-        >
-          {Array.from({ length: 24 }).map((_, i) => {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const mk = `${d.getFullYear()}-${String(
-              d.getMonth() + 1
-            ).padStart(2, "0")}`;
-            return (
-              <option key={mk} value={mk}>
-                {mk}
-              </option>
-            );
-          })}
-        </select>
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="קטגוריה, תיאור או תאריך"
+        />
+
+        <div className="row" style={{ marginTop: 10 }}>
+          <div className="badge">סה"כ הכנסות: {formatILS(totals.income)}</div>
+          <div className="badge">סה"כ הוצאות: {formatILS(totals.expense)}</div>
+          <div className="badge">נטו: {formatILS(totals.income - totals.expense)}</div>
+          <div className="badge">פריטים: {filteredItems.length}</div>
+        </div>
       </div>
 
       <div style={{ height: 12 }} />
@@ -233,8 +284,9 @@ await updateDoc(doc(db, "records", it.id), {
 
       {state === "ready" && (
         <div className="grid">
-          {items.map((it) => {
+          {filteredItems.map((it) => {
             const isEditing = editingId === it.id;
+            const isLargeExpense = it.type === "expense" && Number(it.amount || 0) >= 1000;
 
             return (
               <div
@@ -257,10 +309,7 @@ await updateDoc(doc(db, "records", it.id), {
                   </button>
                 </div>
 
-                <div
-                  className="swipe-content card"
-                  onPointerDown={(e) => onPointerDown(e, it.id)}
-                >
+                <div className={"swipe-content card" + (isLargeExpense ? " tx-large-expense" : "")} onPointerDown={(e) => onPointerDown(e, it.id)}>
                   <div className="txn-title">
                     {formatILS(it.amount)} –{" "}
                     {it.category || "ללא קטגוריה"}
@@ -319,6 +368,12 @@ await updateDoc(doc(db, "records", it.id), {
               </div>
             );
           })}
+
+          {filteredItems.length === 0 && (
+            <div className="card muted" style={{ textAlign: "center" }}>
+              לא נמצאו תוצאות לפי הסינון שבחרת.
+            </div>
+          )}
         </div>
       )}
     </AppLayout>

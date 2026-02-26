@@ -6,6 +6,7 @@ import SettingsPage from "../pages/SettingsPage";
 import LoginPage from "../pages/LoginPage";
 import { watchAuth } from "../services/authService";
 import type { User } from "firebase/auth";
+import { applyPreferencesToDocument, loadPreferences } from "../utils/preferences";
 
 function Protected(props: { user: User | null; children: React.ReactNode }) {
   if (!props.user) return <Navigate to="/login" replace />;
@@ -18,6 +19,10 @@ export default function App() {
   useEffect(() => {
     const unsub = watchAuth((u) => setUser(u));
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    applyPreferencesToDocument(loadPreferences());
   }, []);
 
   return (
