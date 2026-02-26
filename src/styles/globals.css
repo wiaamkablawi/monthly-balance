@@ -34,6 +34,19 @@
   --swipe-width: 140px;
 }
 
+:root[data-theme="dark"]{
+  --bg: #020617;
+  --panel: rgba(15,23,42,0.85);
+  --card: #0f172a;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --border: rgba(148,163,184,0.30);
+  --chip: rgba(148,163,184,0.10);
+  --chip-border: rgba(148,163,184,0.35);
+  --shadow: 0 14px 40px rgba(0,0,0,0.45);
+  --shadow-soft: 0 8px 20px rgba(0,0,0,0.35);
+}
+
 *{ box-sizing: border-box; }
 html, body{ height: 100%; }
 
@@ -99,7 +112,7 @@ button, input, select, textarea{ font: inherit; }
 /* Card */
 .card{
   border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.80));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card) 92%, white 8%), color-mix(in srgb, var(--card) 80%, transparent));
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 14px;
@@ -374,6 +387,11 @@ button, input, select, textarea{ font: inherit; }
   background: rgba(255,255,255,0.92);
 }
 
+.btn.is-selected{
+  border-color: rgba(37,99,235,0.45);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.18);
+}
+
 .btn.danger{
   border-color: rgba(239,68,68,0.22);
   background: linear-gradient(135deg, rgba(239,68,68,0.92), rgba(168,85,247,0.30));
@@ -398,6 +416,13 @@ button, input, select, textarea{ font: inherit; }
   border-radius: 14px;
   outline: none;
   box-shadow: 0 1px 0 rgba(2,6,23,0.02);
+}
+
+.settings-check{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
 }
 
 .input:focus{
@@ -642,6 +667,23 @@ label{
   touch-action: pan-y;
   transition: transform 180ms ease;
   will-change: transform;
+}
+
+.highlight-large-expenses .tx-large-expense{
+  border-color: rgba(239,68,68,0.35);
+  box-shadow: 0 0 0 1px rgba(239,68,68,0.25), 0 12px 30px rgba(239,68,68,0.14);
+}
+
+.compact-mode .container{
+  padding-top: 10px;
+}
+
+.compact-mode .card,
+.compact-mode .kpi-card,
+.compact-mode .txn-row,
+.compact-mode .swipe-content.card{
+  border-radius: 14px;
+  padding: 10px;
 }
 
 /* Desktop: אין swipe */

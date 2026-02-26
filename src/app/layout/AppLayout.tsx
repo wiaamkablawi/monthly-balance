@@ -76,10 +76,10 @@ export default function AppLayout(props: { title: string; right?: React.ReactNod
               fontSize: 16,
               fontWeight: 700,
               letterSpacing: "0.2px",
-              color: "#0f172a",
+              color: "var(--text)",
             }}
           >
-            מערכת ניהול תקציב חודשית
+            מערכת ניהול תקציב חודשית · {props.title}
           </div>
 
           {/* שמאל */}
@@ -97,6 +97,19 @@ export default function AppLayout(props: { title: string; right?: React.ReactNod
       </header>
 
       <main className="container">{props.children}</main>
+
+      {props.right ? (
+        <div
+          style={{
+            position: "fixed",
+            left: 14,
+            top: 84,
+            zIndex: 25,
+          }}
+        >
+          {props.right}
+        </div>
+      ) : null}
     </>
   );
 }
