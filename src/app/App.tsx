@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import DashboardPage from "../pages/DashboardPage";
+import AddEntryPage from "../pages/AddEntryPage";
 import TransactionsPage from "../pages/TransactionsPage";
 import SettingsPage from "../pages/SettingsPage";
 import LoginPage from "../pages/LoginPage";
@@ -36,8 +37,14 @@ export default function App() {
         }
       />
 
-      {/* לא משתמשים במסך נפרד להוספה - תמיד מודאל בדשבורד */}
-      <Route path="/add" element={<Navigate to="/" replace />} />
+      <Route
+        path="/add"
+        element={
+          <Protected user={user}>
+            <AddEntryPage />
+          </Protected>
+        }
+      />
 
       <Route
         path="/transactions"
