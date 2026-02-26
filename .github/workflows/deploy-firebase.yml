@@ -30,6 +30,6 @@ jobs:
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MONTHLY_BALANCE_548D1 }}
+          firebaseToken: ${{ secrets.FIREBASE_TOKEN }}
           channelId: live
           projectId: monthly-balance-548d1
