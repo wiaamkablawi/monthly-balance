@@ -16,14 +16,14 @@ export default function LoginPage() {
 
   return (
     <div className="container" style={{ paddingTop: 48 }}>
-      <div className="card">
+      <div className="card login-card">
         <h2 style={{ marginBottom: 12 }}>התחברות</h2>
 
         <div className="grid" style={{ gap: 10 }}>
-          {err ? <div style={{ color: "#fecdd3", fontSize: 12 }}>{err}</div> : null}
+          {err ? <div className="auth-message auth-message-error">{err}</div> : null}
 
           {firebaseEnvWarning ? (
-            <div style={{ color: "#f59e0b", fontSize: 12 }}>{firebaseEnvWarning}</div>
+            <div className="auth-message auth-message-warning">{firebaseEnvWarning}</div>
           ) : null}
 
           <button className="btn" type="button" onClick={onGoogleLogin} disabled={Boolean(firebaseEnvWarning)}>
