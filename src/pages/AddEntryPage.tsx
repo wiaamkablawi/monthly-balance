@@ -4,7 +4,7 @@ import { monthKeyFromISO, todayISO } from "../utils/dates";
 import { auth, db } from "../services/firebase";
 import { userKeyFromEmail } from "../services/authService";
 import type { EntryDoc, EntrySubType, EntryType } from "../types/models";
-import { collection, doc, getDocs, limit, query, where, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
 
 type EntryKind = "expense_variable" | "income";
 
@@ -111,6 +111,10 @@ async function fileSha256(file: File): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   const bytes = Array.from(new Uint8Array(digest));
   return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function imageImportDocId(createdBy: string, hash: string): string {
+  return `${userKeyFromEmail(createdBy)}_${hash}`;
 }
 
 async function extractTextFromImage(file: File): Promise<string> {
@@ -377,9 +381,10 @@ export default function AddEntryPage() {
 
     try {
       const hash = await fileSha256(selectedImage);
-      const alreadyUploaded = await getDocs(query(collection(db, "records"), where("importHash", "==", hash), limit(1)));
+      const importMarkerRef = doc(collection(db, "imageImports"), imageImportDocId(user.email, hash));
+      const importMarker = await getDoc(importMarkerRef);
 
-      if (!alreadyUploaded.empty) {
+      if (importMarker.exists()) {
         setErr("התמונה הזו כבר הועלתה בעבר, לא נוספו שורות חדשות.");
         return;
       }
@@ -416,6 +421,14 @@ export default function AddEntryPage() {
       });
 
       await batch.commit();
+      await setDoc(importMarkerRef, {
+        hash,
+        createdBy: user.email,
+        sourceName: selectedImage.name,
+        rowsAdded: parsedExpenses.length,
+        createdAt: Date.now(),
+      });
+
       setOk(`היבוא הושלם בהצלחה. נוספו ${parsedExpenses.length} הוצאות.`);
       setSelectedImage(null);
     } catch (ex: any) {
