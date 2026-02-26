@@ -1,8 +1,15 @@
-import React, { useState } from "react";
-import { loginWithGoogle } from "../services/authService";
+import React, { useEffect, useState } from "react";
+import { getAuthSetupError, loginWithGoogle } from "../services/authService";
 
 export default function LoginPage() {
   const [err, setErr] = useState<string>("");
+
+  useEffect(() => {
+    const setupError = getAuthSetupError();
+    if (setupError) {
+      setErr("הגדרות Firebase אינן תקינות. בדקו את ערכי VITE_FIREBASE_*.");
+    }
+  }, []);
 
   async function onGoogleLogin() {
     setErr("");

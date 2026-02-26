@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import AppLayout from "../app/layout/AppLayout";
 import { currentMonthKey, monthKeyFromISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
-import { db } from "../services/firebase";
+import { getFirebaseDb } from "../services/firebase";
 import type { EntryDoc } from "../types/models";
 import {
   collection,
@@ -18,6 +18,7 @@ import {
 type LoadState = "idle" | "loading" | "ready" | "error";
 
 export default function TransactionsPage() {
+  const db = getFirebaseDb();
   const [monthKey, setMonthKey] = useState(currentMonthKey());
   const [state, setState] = useState<LoadState>("idle");
   const [err, setErr] = useState("");
@@ -43,12 +44,12 @@ export default function TransactionsPage() {
 
       try {
   const qByMonthKey = query(
-  collection(db, "records"),
+  collection(getFirebaseDb(), "records"),
   where("monthKey", "==", monthKey)
 );
 
 const qByMonth = query(
-  collection(db, "records"),
+  collection(getFirebaseDb(), "records"),
   where("month", "==", monthKey)
 );
 
@@ -113,7 +114,7 @@ setState("ready");
   async function saveEdit(it: EntryDoc) {
     const mk = monthKeyFromISO(editDate);
 
-await updateDoc(doc(db, "records", it.id), {
+await updateDoc(doc(getFirebaseDb(), "records", it.id), {
   date: editDate,
   monthKey: mk,
   month: mk,
@@ -128,7 +129,7 @@ await updateDoc(doc(db, "records", it.id), {
 
   async function onDelete(it: EntryDoc) {
     if (!window.confirm("למחוק את התנועה?")) return;
-    await deleteDoc(doc(db, "records", it.id));
+    await deleteDoc(doc(getFirebaseDb(), "records", it.id));
     setItems((prev) => prev.filter((x) => x.id !== it.id));
   }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { auth } from "../../services/firebase";
+import { getFirebaseAuth } from "../../services/firebase";
 import BottomNav from "../../components/BottomNav";
 
 export default function AppLayout(props: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
@@ -7,6 +7,7 @@ export default function AppLayout(props: { title: string; right?: React.ReactNod
   const [now, setNow] = useState<Date>(new Date());
 
   useEffect(() => {
+    const auth = getFirebaseAuth();
     const unsub = auth.onAuthStateChanged((u) => {
       const email = u?.email || "";
 

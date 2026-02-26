@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import AppLayout from "../app/layout/AppLayout";
 import { monthKeyFromISO, todayISO } from "../utils/dates";
-import { auth, db } from "../services/firebase";
+import { getFirebaseAuth, getFirebaseDb } from "../services/firebase";
 import { userKeyFromEmail } from "../services/authService";
 import type { EntryDoc, EntrySubType, EntryType } from "../types/models";
 import { collection, doc, writeBatch } from "firebase/firestore";
@@ -59,6 +59,8 @@ function splitAmountToInstallments(total: number, n: number): number[] {
 }
 
 export default function AddEntryPage() {
+  const auth = getFirebaseAuth();
+  const db = getFirebaseDb();
   const [kind, setKind] = useState<EntryKind>("expense_variable");
   const [date, setDate] = useState<string>(todayISO());
   const [category, setCategory] = useState<string>("");
@@ -129,7 +131,7 @@ export default function AddEntryPage() {
     const v = validate();
     if (!v) return;
 
-    const user = auth.currentUser;
+    const user = getFirebaseAuth().currentUser;
     if (!user || !user.email) {
       setErr("אין משתמש מחובר. אנא התחבר מחדש.");
       return;
@@ -170,8 +172,8 @@ export default function AddEntryPage() {
             : {}),
         };
 
-        const batch = writeBatch(db);
-        const ref = doc(collection(db, "records"));
+        const batch = writeBatch(getFirebaseDb());
+        const ref = doc(collection(getFirebaseDb(), "records"));
         batch.set(ref, payload as any);
         await batch.commit();
 
@@ -189,7 +191,7 @@ export default function AddEntryPage() {
         const txDateObj = new Date(y, m - 1, d);
         const baseMonthFirstDay = new Date(txDateObj.getFullYear(), txDateObj.getMonth(), 1);
 
-        const batch = writeBatch(db);
+        const batch = writeBatch(getFirebaseDb());
 
         for (let i = 1; i <= nInst; i++) {
           let chargeISO: string;
@@ -223,7 +225,7 @@ export default function AddEntryPage() {
             chargeDay: v.chargeDayNumber,
           } as any;
 
-          const ref = doc(collection(db, "records"));
+          const ref = doc(collection(getFirebaseDb(), "records"));
           batch.set(ref, payload as any);
         }
 

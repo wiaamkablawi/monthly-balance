@@ -3,7 +3,7 @@ import { userKeyFromEmail } from "../services/authService";
 import AppLayout from "../app/layout/AppLayout";
 import { currentMonthKey, monthKeyFromISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
-import { auth, db } from "../services/firebase";
+import { getFirebaseAuth, getFirebaseDb } from "../services/firebase";
 import type { EntryDoc } from "../types/models";
 
 import {
@@ -212,7 +212,7 @@ function AddEntryModal(props: {
       return;
     }
 
-    const user = auth.currentUser;
+    const user = getFirebaseAuth().currentUser;
     if (!user?.email) {
       setErr("משתמש לא מחובר.");
       return;
@@ -227,10 +227,10 @@ function AddEntryModal(props: {
     setErr("");
 
     try {
-      const batch = writeBatch(db);
+      const batch = writeBatch(getFirebaseDb());
 
       if (!shouldUseInstallments) {
-        const ref = doc(collection(db, "records"));
+        const ref = doc(collection(getFirebaseDb(), "records"));
         const payload: any = {
           type,
           date,
@@ -276,7 +276,7 @@ function AddEntryModal(props: {
           chargeISO = toISODate(chargeDate);
         }
 
-        const ref = doc(collection(db, "records"));
+        const ref = doc(collection(getFirebaseDb(), "records"));
         const payload: any = {
           type,
           subType,
@@ -460,6 +460,8 @@ function AddEntryModal(props: {
 }
 
 export default function DashboardPage() {
+  const auth = getFirebaseAuth();
+  const db = getFirebaseDb();
   const [monthKey, setMonthKey] = useState<string>(currentMonthKey());
   const [state, setState] = useState<LoadState>("idle");
   const [err, setErr] = useState<string>("");
@@ -492,14 +494,14 @@ export default function DashboardPage() {
   }, []);
 
   async function ensureFixedRealizationsForMonth(targetMonthKey: string) {
-    const user = auth.currentUser;
+    const user = getFirebaseAuth().currentUser;
     if (!user?.email) return;
 
     const uk = userKeyFromEmail(user.email);
     if (uk !== "W") return;
 
     const existingQ = query(
-      collection(db, "records"),
+      collection(getFirebaseDb(), "records"),
       where("monthKey", "==", targetMonthKey),
       where("subType", "==", "fixed_realization"),
       limit(1)
@@ -507,10 +509,10 @@ export default function DashboardPage() {
     const existingSnap = await getDocs(existingQ);
     if (!existingSnap.empty) return;
 
-    const tmplSnap = await getDocs(query(collection(db, "fixed_templates")));
+    const tmplSnap = await getDocs(query(collection(getFirebaseDb(), "fixed_templates")));
     if (tmplSnap.empty) return;
 
-    const batch = writeBatch(db);
+    const batch = writeBatch(getFirebaseDb());
 
     tmplSnap.forEach((t) => {
       const data: any = t.data();
@@ -522,7 +524,7 @@ export default function DashboardPage() {
       const dateISO = `${targetMonthKey}-${dd}`;
 
       const docId = `fx__${targetMonthKey}__${uk}__${t.id}`;
-      const ref = doc(collection(db, "records"), docId);
+      const ref = doc(collection(getFirebaseDb(), "records"), docId);
 
       batch.set(ref, {
         type: "expense",
@@ -563,8 +565,8 @@ export default function DashboardPage() {
         await ensureFixedRealizationsForMonth(monthKey);
 
       // תופסים גם רשומות ישנות שיש להן month בלי monthKey
-const qByMonthKey = query(collection(db, "records"), where("monthKey", "==", monthKey));
-const qByMonth = query(collection(db, "records"), where("month", "==", monthKey));
+const qByMonthKey = query(collection(getFirebaseDb(), "records"), where("monthKey", "==", monthKey));
+const qByMonth = query(collection(getFirebaseDb(), "records"), where("month", "==", monthKey));
 
 const [snapKey, snapMonth] = await Promise.all([getDocs(qByMonthKey), getDocs(qByMonth)]);
 if (cancelled) return;
@@ -657,13 +659,13 @@ pushSnap(snapMonth);
 
         // איחוד תוצאות משתי שאילתות: month וגם monthKey (כדי לתפוס רשומות ישנות)
         const qByMonth = query(
-          collection(db, "records"),
+          collection(getFirebaseDb(), "records"),
           where("type", "==", "expense"),
           where("month", "in", last6Months)
         );
 
         const qByMonthKey = query(
-          collection(db, "records"),
+          collection(getFirebaseDb(), "records"),
           where("type", "==", "expense"),
           where("monthKey", "in", last6Months)
         );
@@ -755,7 +757,7 @@ pushSnap(snapMonth);
     setErr("");
 
     try {
-      await deleteDoc(doc(db, "records", id));
+      await deleteDoc(doc(getFirebaseDb(), "records", id));
       setItems((prev) => prev.filter((x) => x.id !== id));
     } catch (e: any) {
       setErr(e?.message || "שגיאה במחיקה.");
@@ -802,7 +804,7 @@ pushSnap(snapMonth);
     const mk = monthKeyFromISO(editDate);
 
     try {
-      const ref = doc(db, "records", it.id);
+      const ref = doc(getFirebaseDb(), "records", it.id);
       await updateDoc(ref, {
         date: editDate,
         monthKey: mk,
