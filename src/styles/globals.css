@@ -124,32 +124,6 @@ button, input, select, textarea{ font: inherit; }
   color: var(--text);
 }
 
-.login-card{
-  max-width: 760px;
-  margin: 0 auto;
-}
-
-.auth-message{
-  font-size: 12px;
-  line-height: 1.45;
-  padding: 8px 10px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  overflow-wrap: anywhere;
-}
-
-.auth-message-warning{
-  color: #b45309;
-  background: #fffbeb;
-  border-color: #fcd34d;
-}
-
-.auth-message-error{
-  color: #991b1b;
-  background: #fef2f2;
-  border-color: #fecaca;
-}
-
 /* Grid helpers */
 .grid{ display: grid; gap: 12px; }
 
