@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { loginWithGoogle } from "../services/authService";
+import { firebaseEnvWarning } from "../services/firebase";
 
 export default function LoginPage() {
   const [err, setErr] = useState<string>("");
@@ -21,7 +22,11 @@ export default function LoginPage() {
         <div className="grid" style={{ gap: 10 }}>
           {err ? <div style={{ color: "#fecdd3", fontSize: 12 }}>{err}</div> : null}
 
-          <button className="btn" type="button" onClick={onGoogleLogin}>
+          {firebaseEnvWarning ? (
+            <div style={{ color: "#f59e0b", fontSize: 12 }}>{firebaseEnvWarning}</div>
+          ) : null}
+
+          <button className="btn" type="button" onClick={onGoogleLogin} disabled={Boolean(firebaseEnvWarning)}>
             התחברות עם Google
           </button>
 

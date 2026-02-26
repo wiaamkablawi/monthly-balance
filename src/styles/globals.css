@@ -376,6 +376,12 @@ button, input, select, textarea{ font: inherit; }
   transform: translateY(0px);
 }
 
+.btn:disabled{
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .btn.secondary{
   border-color: var(--border);
   background: rgba(255,255,255,0.78);
