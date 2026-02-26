@@ -23,6 +23,7 @@ export interface EntryDoc {
   sourceFixedId?: string;
   importHash?: string;
   importSource?: string;
+  importFingerprint?: string;
 
   createdAt: number;
   createdBy: string; // email או "system"

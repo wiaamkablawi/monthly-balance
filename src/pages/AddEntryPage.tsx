@@ -4,7 +4,7 @@ import { monthKeyFromISO, todayISO } from "../utils/dates";
 import { auth, db } from "../services/firebase";
 import { userKeyFromEmail } from "../services/authService";
 import type { EntryDoc, EntrySubType, EntryType } from "../types/models";
-import { collection, doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from "firebase/firestore";
 
 type EntryKind = "expense_variable" | "income";
 
@@ -104,6 +104,10 @@ function parseExpensesFromOCRText(text: string): ParsedExpense[] {
   }
 
   return out;
+}
+
+function buildExpenseFingerprint(date: string, amount: number, category: string): string {
+  return `${date}|${amount.toFixed(2)}|${category.trim().toLowerCase()}`;
 }
 
 async function fileSha256(file: File): Promise<string> {
@@ -397,10 +401,45 @@ export default function AddEntryPage() {
         return;
       }
 
+      const uniqueParsed = parsedExpenses.filter((expense, index, arr) => {
+        const fp = buildExpenseFingerprint(expense.date, expense.amount, expense.category);
+        return arr.findIndex((item) => buildExpenseFingerprint(item.date, item.amount, item.category) === fp) === index;
+      });
+
+      if (!uniqueParsed.length) {
+        setErr("כל הרשומות בתמונה נראו כפולות ולא נוספו.");
+        return;
+      }
+
+      const existingFingerprints = new Set<string>();
+      for (const expense of uniqueParsed) {
+        const q = query(
+          collection(db, "records"),
+          where("createdBy", "==", user.email),
+          where("date", "==", expense.date),
+          where("amount", "==", expense.amount),
+          where("category", "==", expense.category)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          existingFingerprints.add(buildExpenseFingerprint(expense.date, expense.amount, expense.category));
+        }
+      }
+
+      const newExpenses = uniqueParsed.filter(
+        (expense) => !existingFingerprints.has(buildExpenseFingerprint(expense.date, expense.amount, expense.category))
+      );
+
+      if (!newExpenses.length) {
+        setErr("לא נוספו הוצאות: כל הרשומות כבר קיימות במערכת.");
+        return;
+      }
+
       const batch = writeBatch(db);
       const createdAtBase = Date.now();
 
-      parsedExpenses.forEach((expense, index) => {
+      newExpenses.forEach((expense, index) => {
+        const fingerprint = buildExpenseFingerprint(expense.date, expense.amount, expense.category);
         const payload: Omit<EntryDoc, "id"> = {
           type: "expense",
           subType: "variable",
@@ -414,6 +453,7 @@ export default function AddEntryPage() {
           createdBy: user.email as string,
           importHash: hash,
           importSource: `image:${selectedImage.name}`,
+          importFingerprint: fingerprint,
         } as any;
 
         const ref = doc(collection(db, "records"));
@@ -425,11 +465,18 @@ export default function AddEntryPage() {
         hash,
         createdBy: user.email,
         sourceName: selectedImage.name,
-        rowsAdded: parsedExpenses.length,
+        rowsParsed: parsedExpenses.length,
+        rowsAdded: newExpenses.length,
+        rowsSkippedDuplicates: uniqueParsed.length - newExpenses.length,
         createdAt: Date.now(),
       });
 
-      setOk(`היבוא הושלם בהצלחה. נוספו ${parsedExpenses.length} הוצאות.`);
+      const skippedDuplicates = uniqueParsed.length - newExpenses.length;
+      setOk(
+        skippedDuplicates > 0
+          ? `היבוא הושלם בהצלחה. נוספו ${newExpenses.length} הוצאות, ודולגו ${skippedDuplicates} כפילויות.`
+          : `היבוא הושלם בהצלחה. נוספו ${newExpenses.length} הוצאות.`
+      );
       setSelectedImage(null);
     } catch (ex: any) {
       setErr(ex?.message || "שגיאה בניתוח ושמירת נתוני התמונה.");
