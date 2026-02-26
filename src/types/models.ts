@@ -21,6 +21,8 @@ export interface EntryDoc {
 
   // מקור הוצאה קבועה
   sourceFixedId?: string;
+  importHash?: string;
+  importSource?: string;
 
   createdAt: number;
   createdBy: string; // email או "system"
