@@ -30,7 +30,7 @@ type ParsedExpense = {
 };
 
 const OCR_API_ENDPOINT = "https://api.ocr.space/parse/image";
-const OCR_API_KEY = "helloworld";
+const OCR_API_KEY = String(import.meta.env.VITE_OCR_SPACE_API_KEY || "").trim() || "helloworld";
 
 const CATEGORY_KEYWORDS: Array<{ category: string; keywords: string[] }> = [
   { category: "מזון", keywords: ["סופר", "מזון", "מסעד", "קפה", "מכולת", "market", "food"] },
