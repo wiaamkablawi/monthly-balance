@@ -17,6 +17,19 @@ function envOrFallback(key: string, fallback: string): string {
   return v || fallback;
 }
 
+const requiredFirebaseEnvKeys = [
+  "VITE_FIREBASE_API_KEY",
+  "VITE_FIREBASE_AUTH_DOMAIN",
+  "VITE_FIREBASE_PROJECT_ID",
+  "VITE_FIREBASE_STORAGE_BUCKET",
+  "VITE_FIREBASE_MESSAGING_SENDER_ID",
+  "VITE_FIREBASE_APP_ID",
+] as const;
+
+export const isFirebaseConfigured = requiredFirebaseEnvKeys.every(
+  (key) => String(import.meta.env[key] || "").trim().length > 0
+);
+
 const firebaseConfig = {
   apiKey: envOrFallback("VITE_FIREBASE_API_KEY", "demo-api-key"),
   authDomain: envOrFallback("VITE_FIREBASE_AUTH_DOMAIN", "demo-project.firebaseapp.com"),
@@ -27,7 +40,7 @@ const firebaseConfig = {
 };
 
 if (!import.meta.env.VITE_FIREBASE_API_KEY) {
-  console.warn("Firebase env vars are missing; using safe demo placeholders. Configure VITE_FIREBASE_* in .env for production.");
+  console.warn("Firebase env vars are missing; Google login is disabled until VITE_FIREBASE_* values are configured.");
 }
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
