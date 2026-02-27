@@ -282,7 +282,7 @@ function ImportEntriesModal(props: {
     >
       <div style={{ width: "min(1080px, 96vw)", maxHeight: "85vh", overflow: "auto", borderRadius: 18, border: "1px solid rgba(15,23,42,0.10)", background: "#fff", boxShadow: "0 24px 70px rgba(2,6,23,0.20)", padding: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <div style={{ fontWeight: 900 }}>העלאת קובץ תנועות</div>
+          <div style={{ fontWeight: 900 }}>הוספת קובץ וניתוח תנועות</div>
           <button className="btn secondary" type="button" onClick={onClose} disabled={saving || loading}>
             סגור
           </button>
@@ -1122,8 +1122,13 @@ pushSnap(snapMonth);
             <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
               הוספת תנועה
             </button>
-            <button className="btn secondary" onClick={() => setIsImportOpen(true)} disabled={state === "loading"}>
-              העלאת קובץ
+            <button
+              className="btn"
+              onClick={() => setIsImportOpen(true)}
+              disabled={state === "loading"}
+              style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.95), rgba(37,99,235,0.92))" }}
+            >
+              📁 הוספת קובץ
             </button>
           </div>
 
