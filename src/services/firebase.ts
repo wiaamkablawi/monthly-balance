@@ -39,9 +39,6 @@ const firebaseConfig = {
   appId: envOrFallback("VITE_FIREBASE_APP_ID", "1:1234567890:web:demo"),
 };
 
-if (!import.meta.env.VITE_FIREBASE_API_KEY) {
-  console.warn("Firebase env vars are missing; Google login is disabled until VITE_FIREBASE_* values are configured.");
-}
 
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);

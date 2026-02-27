@@ -22,7 +22,14 @@ export default function LoginPage() {
         <div className="grid" style={{ gap: 10 }}>
           {err ? <div style={{ color: "#fecdd3", fontSize: 12 }}>{err}</div> : null}
 
-          <button className="btn" type="button" onClick={onGoogleLogin} disabled={!isFirebaseConfigured}>
+          <button
+            className="btn"
+            type="button"
+            onClick={onGoogleLogin}
+            disabled={!isFirebaseConfigured}
+            style={!isFirebaseConfigured ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+            title={!isFirebaseConfigured ? "יש להגדיר VITE_FIREBASE_* בקובץ .env" : undefined}
+          >
             התחברות עם Google
           </button>
 
