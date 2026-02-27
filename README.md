@@ -19,17 +19,28 @@
 
 ## מה עושים במסך Secrets
 
-ודאי שקיים Secret בשם `FIREBASE_TOKEN`.
+ודאי שקיים Service Account תקין בשם:
 
-## איך מייצרים FIREBASE_TOKEN (אם צריך חדש)
+- `FIREBASE_SERVICE_ACCOUNT_MONTHLY_BALANCE`
 
-ב-Codespaces terminal או במחשב מקומי עם Firebase CLI:
+בנוסף, יש להגדיר גם את כל משתני ה-Web SDK (לשלב build ב-GitHub Actions):
 
-```bash
-firebase login:ci
-```
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
 
-להעתיק את הטוקן שמתקבל ולהדביק אותו ב-GitHub Secret בשם `FIREBASE_TOKEN`.
+אם אחד מהם חסר, האפליקציה תעלה אבל התחברות Google תישאר מושבתת.
+
+## הערה לגבי אימות ל-Firebase Deploy
+
+ה-workflow משתמש ב־GitHub Secret של Service Account:
+
+- `FIREBASE_SERVICE_ACCOUNT_MONTHLY_BALANCE`
+
+ולא ב-`FIREBASE_TOKEN`.
 
 ## בדיקה מהירה (Codespaces)
 
@@ -55,5 +66,5 @@ git push
 
 1. פתחי את ה-run האחרון ב-Actions.
 2. בדקי את הלוגים של השלב "Deploy to Firebase Hosting".
-3. ודאי ש-`FIREBASE_TOKEN` לא פג תוקף (אפשר לייצר חדש עם `firebase login:ci`).
-4. ודאי שלמשתמש שהפיק את ה-token יש הרשאות לפרויקט `monthly-balance-548d1`.
+3. ודאי שה-Secret `FIREBASE_SERVICE_ACCOUNT_MONTHLY_BALANCE` תקין ולא הוסר.
+4. ודאי שכל `VITE_FIREBASE_*` מוגדרים ב-Secrets כדי שה-build יקבל קונפיגורציית Firebase מלאה.
