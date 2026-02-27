@@ -9,6 +9,7 @@ export interface EntryDoc {
   subType: EntrySubType;
   date: string;       // YYYY-MM-DD
   monthKey: string;   // YYYY-MM
+  month?: string;     // Legacy support (old docs)
   category: string;
   description: string;
   amount: number;
@@ -16,8 +17,10 @@ export interface EntryDoc {
 
   // תשלומים
   installmentsCount?: number;     // N
+  installmentsTotal?: number;     // Legacy/compat alias used in existing docs
   installmentIndex?: number;      // 1..N
   installmentGroupId?: string;    // מזהה משותף לכל התשלומים
+  chargeDay?: number;
 
   // מקור הוצאה קבועה
   sourceFixedId?: string;
