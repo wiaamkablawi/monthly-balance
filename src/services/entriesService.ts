@@ -1,4 +1,4 @@
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection } from "firebase/firestore";
 import { auth } from "./firebase";
 import { db } from "./firebase";
 import { userKeyFromEmail } from "./authService";
@@ -13,14 +13,17 @@ function monthFromDate(date: string): string {
 export async function addEntry(doc: Omit<EntryDoc, "id">): Promise<string> {
   const email = auth.currentUser?.email?.toLowerCase() || "";
 
-  const payload: Omit<EntryDoc, "id"> = {
-    ...doc,
-   createdBy: (doc as any).createdBy || email,
-userKey: doc.userKey || userKeyFromEmail(((doc as any).createdBy || email) as string),
+  type EntryWrite = Omit<EntryDoc, "id"> & {
+    month?: string;
+  };
 
-    month: (doc as any).month || monthFromDate((doc as any).date || ""),
-    createdAt: (doc as any).createdAt || serverTimestamp(),
-  } as any;
+  const payload: EntryWrite = {
+    ...doc,
+    createdBy: doc.createdBy || email,
+    userKey: doc.userKey || userKeyFromEmail(doc.createdBy || email),
+    month: doc.month || monthFromDate(doc.date || ""),
+    createdAt: doc.createdAt || Date.now(),
+  };
 
   const ref = await addDoc(collection(db, "records"), payload);
   return ref.id;
