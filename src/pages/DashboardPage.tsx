@@ -1150,6 +1150,29 @@ pushSnap(snapMonth);
           תצוגה חודשית. הכרטיסיות והגרף מתעדכנים אוטומטית לפי החודש.
         </div>
 
+        <div
+          className="card"
+          style={{
+            marginTop: 12,
+            padding: 10,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 10,
+          }}
+        >
+          <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
+            ➕ הוספת תנועה ידנית
+          </button>
+          <button
+            className="btn"
+            onClick={() => setIsImportOpen(true)}
+            disabled={state === "loading"}
+            style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.95), rgba(37,99,235,0.92))" }}
+          >
+            📁 הוספת קובץ וניתוחו
+          </button>
+        </div>
+
         <div style={{ height: 14 }} />
 
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
