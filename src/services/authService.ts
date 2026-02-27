@@ -5,7 +5,7 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
-import { auth } from "./firebase";
+import { auth, isFirebaseConfigured } from "./firebase";
 
 const ALLOWED_EMAILS = new Set([
   "k.wiaam@gmail.com",
@@ -29,6 +29,10 @@ export function watchAuth(cb: (u: User | null) => void): () => void {
 }
 
 export async function loginWithGoogle(): Promise<void> {
+  if (!isFirebaseConfigured) {
+    throw new Error("התחברות Google אינה זמינה עד להגדרת VITE_FIREBASE_* בקובץ .env.");
+  }
+
   const result = await signInWithPopup(auth, googleProvider);
   const email = (result.user.email || "").toLowerCase();
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import { userKeyFromEmail } from "../services/authService";
 import AppLayout from "../app/layout/AppLayout";
 import { currentMonthKey, monthKeyFromISO } from "../utils/dates";
@@ -70,6 +71,282 @@ function parseAmountInput(v: string): number | null {
   const n = Number((v || "").replace(/,/g, "").trim());
   if (!isValidPositiveNumber(n)) return null;
   return n;
+}
+
+type ParsedImportRow = {
+  id: string;
+  type: EntryDoc["type"];
+  date: string;
+  category: string;
+  description: string;
+  amount: string;
+  selected: boolean;
+};
+
+function toISODateString(v: any, fallbackISO: string): string {
+  if (!v) return fallbackISO;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    const yyyy = v.getFullYear();
+    const mm = String(v.getMonth() + 1).padStart(2, "0");
+    const dd = String(v.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (!m) return fallbackISO;
+  const dd = m[1].padStart(2, "0");
+  const mm = m[2].padStart(2, "0");
+  const yyyy = (m[3].length === 2 ? `20${m[3]}` : m[3]).padStart(4, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function detectTypeFromRaw(typeRaw: string, amount: number): EntryDoc["type"] {
+  const t = typeRaw.trim().toLowerCase();
+  if (t.includes("income") || t.includes("הכנסה") || t.includes("credit") || t.includes("זיכוי")) return "income";
+  if (t.includes("expense") || t.includes("הוצאה") || t.includes("debit") || t.includes("חיוב")) return "expense";
+  return amount >= 0 ? "income" : "expense";
+}
+
+async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedImportRow[]> {
+  const ext = file.name.split(".").pop()?.toLowerCase();
+
+  if (ext === "xlsx" || ext === "xls" || ext === "csv") {
+    const buffer = await file.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: "array", cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" });
+
+    return rows
+      .map((row, i): ParsedImportRow | null => {
+        const amountRaw = row.amount || row.Amount || row.sum || row.Total || row["סכום"] || row["חיוב"] || row["זיכוי"];
+        const numericAmount = Number(String(amountRaw || "").replace(/,/g, "").trim());
+        if (!Number.isFinite(numericAmount) || numericAmount === 0) return null;
+
+        const dateRaw = row.date || row.Date || row["תאריך"];
+        const descRaw = row.description || row.Description || row.details || row["תיאור"] || "";
+        const categoryRaw = row.category || row.Category || row["קטגוריה"] || "אחר";
+        const typeRaw = row.type || row.Type || row["סוג"] || "";
+        const type = detectTypeFromRaw(String(typeRaw || ""), numericAmount);
+
+        return {
+          id: `${file.name}-${i}-${Math.random().toString(16).slice(2)}`,
+          type,
+          date: toISODateString(dateRaw, fallbackISO),
+          category: String(categoryRaw || "אחר").trim(),
+          description: String(descRaw || "").trim() || "ייבוא קובץ",
+          amount: String(Math.abs(numericAmount)),
+          selected: true,
+        };
+      })
+      .filter((x): x is ParsedImportRow => Boolean(x));
+  }
+
+  if (ext === "pdf" || ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "webp") {
+    return [
+      {
+        id: `${file.name}-manual-1`,
+        type: "expense",
+        date: fallbackISO,
+        category: "אחר",
+        description: `טיוטה מקובץ ${file.name} (נדרש דיוק ידני)`,
+        amount: "0",
+        selected: true,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function ImportEntriesModal(props: {
+  open: boolean;
+  onClose: () => void;
+  monthKey: string;
+  defaultDateISO: string;
+  onSaved: () => void;
+}) {
+  const { open, onClose, monthKey, defaultDateISO, onSaved } = props;
+  const [rows, setRows] = useState<ParsedImportRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setRows([]);
+    setErr("");
+    setNote("");
+  }, [open]);
+
+  async function onUploadFile(file?: File) {
+    if (!file || loading) return;
+    setLoading(true);
+    setErr("");
+    setNote("");
+
+    try {
+      const parsed = await parseFileToRows(file, defaultDateISO);
+      if (!parsed.length) {
+        setErr("לא הצלחנו לזהות שורות בקובץ. אפשר לערוך ידנית אחרי בחירת קובץ נתמך.");
+        return;
+      }
+
+      if (file.name.match(/\.(pdf|png|jpg|jpeg|webp)$/i)) {
+        setNote("בקובצי PDF/תמונה נפתחת טיוטה לעריכה ידנית לפני אישור.");
+      }
+
+      setRows(parsed);
+    } catch (e: any) {
+      setErr(e?.message || "שגיאה בניתוח הקובץ.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function updateRow(id: string, patch: Partial<ParsedImportRow>) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  function selectAll(next: boolean) {
+    setRows((prev) => prev.map((r) => ({ ...r, selected: next })));
+  }
+
+  async function saveSelected() {
+    if (saving) return;
+    const selectedRows = rows.filter((r) => r.selected);
+    if (!selectedRows.length) {
+      setErr("אין שורות מאושרות לשמירה.");
+      return;
+    }
+
+    const user = auth.currentUser;
+    if (!user?.email) {
+      setErr("משתמש לא מחובר.");
+      return;
+    }
+
+    setSaving(true);
+    setErr("");
+    try {
+      const batch = writeBatch(db);
+      selectedRows.forEach((r) => {
+        const amountNum = Number(r.amount);
+        if (!Number.isFinite(amountNum) || amountNum <= 0) return;
+        const ref = doc(collection(db, "records"));
+        const mk = monthKeyFromISO(r.date || defaultDateISO);
+        batch.set(ref, {
+          type: r.type,
+          subType: r.type === "expense" ? "variable" : undefined,
+          date: r.date || defaultDateISO,
+          month: mk || monthKey,
+          monthKey: mk || monthKey,
+          category: r.category || "אחר",
+          description: r.description || "ייבוא קובץ",
+          amount: Math.abs(amountNum),
+          userEmail: user.email,
+          userKey: userKeyFromEmail(user.email),
+          importSource: "file_upload",
+          createdAt: Date.now(),
+        });
+      });
+
+      await batch.commit();
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setErr(e?.message || "שגיאה בשמירת שורות.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 60,
+        background: "rgba(15, 23, 42, 0.25)",
+        backdropFilter: "blur(6px)",
+        display: "grid",
+        placeItems: "center",
+        padding: 14,
+      }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div style={{ width: "min(1080px, 96vw)", maxHeight: "85vh", overflow: "auto", borderRadius: 18, border: "1px solid rgba(15,23,42,0.10)", background: "#fff", boxShadow: "0 24px 70px rgba(2,6,23,0.20)", padding: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+          <div style={{ fontWeight: 900 }}>העלאת קובץ תנועות</div>
+          <button className="btn secondary" type="button" onClick={onClose} disabled={saving || loading}>
+            סגור
+          </button>
+        </div>
+        <div style={{ height: 12 }} />
+
+        <input
+          className="input"
+          type="file"
+          accept=".xlsx,.xls,.csv,.pdf,image/*"
+          onChange={(e) => onUploadFile(e.target.files?.[0])}
+          disabled={loading || saving}
+        />
+
+        <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+          המערכת תנתח את הקובץ ותציע פעולות. אפשר לאשר הכל, לדחות הכל או לערוך כל שורה בנפרד.
+        </div>
+
+        {note ? <div className="muted" style={{ marginTop: 8 }}>{note}</div> : null}
+        {err ? <div className="error" style={{ marginTop: 8 }}>{err}</div> : null}
+
+        {rows.length ? (
+          <>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button className="btn secondary" type="button" onClick={() => selectAll(true)} disabled={saving || loading}>
+                אשר הכל
+              </button>
+              <button className="btn secondary" type="button" onClick={() => selectAll(false)} disabled={saving || loading}>
+                דחה הכל
+              </button>
+            </div>
+
+            <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+              {rows.map((r) => (
+                <div key={r.id} className="card" style={{ display: "grid", gap: 8 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input type="checkbox" checked={r.selected} onChange={(e) => updateRow(r.id, { selected: e.target.checked })} />
+                    לאשר שורה
+                  </label>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    <select className="input" value={r.type} onChange={(e) => updateRow(r.id, { type: e.target.value as EntryDoc["type"] })}>
+                      <option value="expense">הוצאה</option>
+                      <option value="income">הכנסה</option>
+                    </select>
+                    <input className="input" type="date" value={r.date} onChange={(e) => updateRow(r.id, { date: e.target.value })} />
+                    <input className="input" value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} placeholder="סכום" />
+                    <input className="input" value={r.category} onChange={(e) => updateRow(r.id, { category: e.target.value })} placeholder="קטגוריה" />
+                    <input className="input" style={{ gridColumn: "1 / -1" }} value={r.description} onChange={(e) => updateRow(r.id, { description: e.target.value })} placeholder="תיאור" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button className="btn" type="button" onClick={saveSelected} disabled={saving || loading}>
+                {saving ? "שומר..." : "שמור שורות מאושרות"}
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function AddEntryModal(props: {
@@ -468,6 +745,7 @@ export default function DashboardPage() {
 
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [isAddOpen, setIsAddOpen] = useState<boolean>(false);
+  const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
 
   const [editingId, setEditingId] = useState<string>("");
   const [editDate, setEditDate] = useState<string>("");
@@ -844,6 +1122,9 @@ pushSnap(snapMonth);
             <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
               הוספת תנועה
             </button>
+            <button className="btn secondary" onClick={() => setIsImportOpen(true)} disabled={state === "loading"}>
+              העלאת קובץ
+            </button>
           </div>
 
           <div className="row" style={{ gap: 10, alignItems: "center" }}>
@@ -1203,6 +1484,14 @@ pushSnap(snapMonth);
       <AddEntryModal
         open={isAddOpen}
         onClose={() => setIsAddOpen(false)}
+        monthKey={monthKey}
+        defaultDateISO={new Date().toISOString().slice(0, 10)}
+        onSaved={() => setReloadKey((x) => x + 1)}
+      />
+
+      <ImportEntriesModal
+        open={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
         monthKey={monthKey}
         defaultDateISO={new Date().toISOString().slice(0, 10)}
         onSaved={() => setReloadKey((x) => x + 1)}
