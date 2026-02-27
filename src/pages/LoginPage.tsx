@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { loginWithGoogle } from "../services/authService";
+import { isFirebaseConfigured } from "../services/firebase";
 
 export default function LoginPage() {
   const [err, setErr] = useState<string>("");
@@ -21,9 +22,22 @@ export default function LoginPage() {
         <div className="grid" style={{ gap: 10 }}>
           {err ? <div style={{ color: "#fecdd3", fontSize: 12 }}>{err}</div> : null}
 
-          <button className="btn" type="button" onClick={onGoogleLogin}>
+          <button
+            className="btn"
+            type="button"
+            onClick={onGoogleLogin}
+            disabled={!isFirebaseConfigured}
+            style={!isFirebaseConfigured ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+            title={!isFirebaseConfigured ? "יש להגדיר VITE_FIREBASE_* בקובץ .env" : undefined}
+          >
             התחברות עם Google
           </button>
+
+          {!isFirebaseConfigured ? (
+            <div style={{ color: "#fca5a5", fontSize: 12 }}>
+              התחברות מושבתת: חסרה הגדרת Firebase בסביבת ההרצה.
+            </div>
+          ) : null}
 
           <div className="muted" style={{ fontSize: 12 }}>
             ניתן להתחבר רק עם חשבונות מורשים.
