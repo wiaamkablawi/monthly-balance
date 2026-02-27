@@ -31,6 +31,7 @@
 - `VITE_FIREBASE_STORAGE_BUCKET`
 - `VITE_FIREBASE_MESSAGING_SENDER_ID`
 - `VITE_FIREBASE_APP_ID`
+- `VITE_OCR_SPACE_API_KEY` (אופציונלי, נדרש עבור ניתוח תמונת OCR במסך הוספה)
 
 אם אחד מהם חסר, האפליקציה תעלה אבל התחברות Google תישאר מושבתת.
 

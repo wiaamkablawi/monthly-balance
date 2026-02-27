@@ -97,6 +97,8 @@ export default function AppLayout(props: { title: string; right?: React.ReactNod
       </header>
 
       <main className="container">{props.children}</main>
+
+      <BottomNav />
     </>
   );
 }

@@ -1116,6 +1116,23 @@ pushSnap(snapMonth);
 
   return (
     <AppLayout title="דשבורד">
+      <button
+        className="btn"
+        type="button"
+        onClick={() => setIsImportOpen(true)}
+        disabled={state === "loading"}
+        style={{
+          position: "fixed",
+          right: 14,
+          bottom: 96,
+          zIndex: 90,
+          boxShadow: "0 14px 34px rgba(2,6,23,0.28)",
+          background: "linear-gradient(135deg, rgba(168,85,247,0.98), rgba(37,99,235,0.95))",
+        }}
+      >
+        📁 הוספת קובץ
+      </button>
+
       <div className="container">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div className="row" style={{ gap: 10, alignItems: "center" }}>
