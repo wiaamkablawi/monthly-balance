@@ -45,8 +45,8 @@ jobs:
       - name: Inject Functions envs
         run: |
           cat > functions/.env << 'EOF'
-          OCR_SPACE_API_KEY=${{ secrets.OCR_SPACE_API_KEY }}
-          ALLOWED_EMAILS=${{ secrets.ALLOWED_EMAILS }}
+          OCR_SPACE_API_KEY="${{ secrets.OCR_SPACE_API_KEY }}"
+          ALLOWED_EMAILS="${{ secrets.ALLOWED_EMAILS }}"
           EOF
 
       - name: Build project
