@@ -64,8 +64,17 @@ jobs:
           EOF
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
 
-      - name: Deploy backend config (rules, indexes, storage, functions)
-        run: npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage,functions:ocrParse --project monthly-balance-548d1 --non-interactive
+      - name: Deploy backend config (rules, storage, functions)
+        run: npx firebase-tools deploy --only firestore:rules,storage,functions:ocrParse --project monthly-balance-548d1 --non-interactive
+
+      - name: Deploy Firestore indexes (non-blocking)
+        id: deploy_indexes
+        continue-on-error: true
+        run: npx firebase-tools deploy --only firestore:indexes --project monthly-balance-548d1 --non-interactive
+
+      - name: Warn when Firestore indexes deployment fails
+        if: ${{ steps.deploy_indexes.outcome == 'failure' }}
+        run: echo "::warning::Firestore indexes deployment failed due to IAM/API permissions. App deploy completed without index updates."
 
       - name: Select Firebase channel by branch
         run: |
