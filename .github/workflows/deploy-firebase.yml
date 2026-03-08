@@ -64,8 +64,17 @@ jobs:
           EOF
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
 
-      - name: Deploy backend config (rules, storage, functions)
-        run: npx firebase-tools deploy --only firestore:rules,storage,functions:ocrParse --project monthly-balance-548d1 --non-interactive
+      - name: Deploy backend config (rules, storage)
+        run: npx firebase-tools deploy --only firestore:rules,storage --project monthly-balance-548d1 --non-interactive
+
+      - name: Deploy Cloud Function ocrParse (non-blocking)
+        id: deploy_function
+        continue-on-error: true
+        run: npx firebase-tools deploy --only functions:ocrParse --project monthly-balance-548d1 --non-interactive
+
+      - name: Warn when Cloud Function deployment fails
+        if: ${{ steps.deploy_function.outcome == 'failure' }}
+        run: echo "::warning::Cloud Function deployment failed due to IAM/API permissions (for example cloudbilling/eventarc/run). Deploy continued without function update."
 
       - name: Deploy Firestore indexes (non-blocking)
         id: deploy_indexes
