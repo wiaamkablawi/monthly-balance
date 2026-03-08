@@ -1,26 +1,14 @@
-import React, { useMemo, useState } from "react";
+﻿import React, { useMemo, useState } from "react";
 import AppLayout from "../app/layout/AppLayout";
 import { monthKeyFromISO, todayISO } from "../utils/dates";
-import { auth, db } from "../services/firebase";
-import { userKeyFromEmail } from "../services/authService";
+import { auth } from "../services/firebase";
+import { db } from "../services/firebaseDb";
+import { householdIdFromEmail, userKeyFromEmail } from "../services/authService";
+import { ADD_ENTRY_EXPENSE_CATEGORIES, ADD_ENTRY_INCOME_CATEGORIES } from "../domain/categories";
 import type { EntryDoc, EntrySubType, EntryType } from "../types/models";
 import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from "firebase/firestore";
 
 type EntryKind = "expense_variable" | "income";
-
-const EXPENSE_CATEGORIES = [
-  "דיור",
-  "מזון",
-  "רכב",
-  "בריאות",
-  "חינוך",
-  "חשבונות",
-  "תקשורת",
-  "בילויים",
-  "אחר",
-];
-
-const INCOME_CATEGORIES = ["משכורת", "החזר", "מתנה", "אחר"];
 
 type ParsedExpense = {
   date: string;
@@ -29,17 +17,21 @@ type ParsedExpense = {
   description: string;
 };
 
-const OCR_API_ENDPOINT = "https://api.ocr.space/parse/image";
-const OCR_API_KEY = String(import.meta.env.VITE_OCR_SPACE_API_KEY || "").trim();
+const OCR_PARSE_ENDPOINT = String(
+  import.meta.env.VITE_OCR_PARSE_ENDPOINT ||
+    (import.meta.env.PROD
+      ? "/api/ocr/parse"
+      : "https://us-central1-monthly-balance-548d1.cloudfunctions.net/ocrParse")
+).trim();
 
 const CATEGORY_KEYWORDS: Array<{ category: string; keywords: string[] }> = [
-  { category: "מזון", keywords: ["סופר", "מזון", "מסעד", "קפה", "מכולת", "market", "food"] },
-  { category: "רכב", keywords: ["דלק", "פז", "סונול", "רכב", "חניה", "כביש", "fuel", "parking"] },
-  { category: "חשבונות", keywords: ["חשמל", "מים", "ארנונה", "גז", "חשבון", "bill"] },
-  { category: "תקשורת", keywords: ["סלולר", "אינטרנט", "טלפון", "פרטנר", "סלקום", "פלאפון"] },
-  { category: "בריאות", keywords: ["בית מרקחת", "קופת", "רופא", "pharm", "clinic"] },
-  { category: "בילויים", keywords: ["קולנוע", "בילוי", "netflix", "spotify", "game"] },
-  { category: "דיור", keywords: ["שכירות", "משכנת", "ועד בית", "home", "rent"] },
+  { category: "׳׳–׳•׳", keywords: ["׳¡׳•׳₪׳¨", "׳׳–׳•׳", "׳׳¡׳¢׳“", "׳§׳₪׳”", "׳׳›׳•׳׳×", "market", "food"] },
+  { category: "׳¨׳›׳‘", keywords: ["׳“׳׳§", "׳₪׳–", "׳¡׳•׳ ׳•׳", "׳¨׳›׳‘", "׳—׳ ׳™׳”", "׳›׳‘׳™׳©", "fuel", "parking"] },
+  { category: "׳—׳©׳‘׳•׳ ׳•׳×", keywords: ["׳—׳©׳׳", "׳׳™׳", "׳׳¨׳ ׳•׳ ׳”", "׳’׳–", "׳—׳©׳‘׳•׳", "bill"] },
+  { category: "׳×׳§׳©׳•׳¨׳×", keywords: ["׳¡׳׳•׳׳¨", "׳׳™׳ ׳˜׳¨׳ ׳˜", "׳˜׳׳₪׳•׳", "׳₪׳¨׳˜׳ ׳¨", "׳¡׳׳§׳•׳", "׳₪׳׳׳₪׳•׳"] },
+  { category: "׳‘׳¨׳™׳׳•׳×", keywords: ["׳‘׳™׳× ׳׳¨׳§׳—׳×", "׳§׳•׳₪׳×", "׳¨׳•׳₪׳", "pharm", "clinic"] },
+  { category: "׳‘׳™׳׳•׳™׳™׳", keywords: ["׳§׳•׳׳ ׳•׳¢", "׳‘׳™׳׳•׳™", "netflix", "spotify", "game"] },
+  { category: "׳“׳™׳•׳¨", keywords: ["׳©׳›׳™׳¨׳•׳×", "׳׳©׳›׳ ׳×", "׳•׳¢׳“ ׳‘׳™׳×", "home", "rent"] },
 ];
 
 function detectCategory(text: string): string {
@@ -47,7 +39,7 @@ function detectCategory(text: string): string {
   for (const entry of CATEGORY_KEYWORDS) {
     if (entry.keywords.some((keyword) => normalized.includes(keyword))) return entry.category;
   }
-  return "אחר";
+  return "׳׳—׳¨";
 }
 
 function normalizeAmount(raw: string): number | null {
@@ -93,7 +85,7 @@ function parseExpensesFromOCRText(text: string): ParsedExpense[] {
     const amount = normalizeAmount(amountRaw);
     if (!amount || amount <= 0) continue;
 
-    const description = line.slice(0, Math.max(0, line.lastIndexOf(amountRaw))).trim() || "עסקה מכרטיס אשראי";
+    const description = line.slice(0, Math.max(0, line.lastIndexOf(amountRaw))).trim() || "׳¢׳¡׳§׳” ׳׳›׳¨׳˜׳™׳¡ ׳׳©׳¨׳׳™";
 
     out.push({
       date,
@@ -117,38 +109,62 @@ async function fileSha256(file: File): Promise<string> {
   return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function imageImportDocId(createdBy: string, hash: string): string {
-  return `${userKeyFromEmail(createdBy)}_${hash}`;
+function imageImportDocId(householdId: string, hash: string): string {
+  return `${householdId}_${hash}`;
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("שגיאה בקריאת קובץ התמונה."));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function extractTextFromImage(file: File): Promise<string> {
-  if (!OCR_API_KEY) {
-    throw new Error("חסר מפתח OCR. יש להגדיר VITE_OCR_SPACE_API_KEY בקובץ .env.");
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error("אין משתמש מחובר.");
   }
 
-  const form = new FormData();
-  form.append("apikey", OCR_API_KEY);
-  form.append("language", "heb");
-  form.append("isOverlayRequired", "false");
-  form.append("file", file);
+  const idToken = await user.getIdToken();
+  const imageBase64 = await fileToDataUrl(file);
 
-  const res = await fetch(OCR_API_ENDPOINT, {
+  const res = await fetch(OCR_PARSE_ENDPOINT, {
     method: "POST",
-    body: form,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({
+      imageBase64,
+      language: "heb",
+      isOverlayRequired: false,
+    }),
   });
 
+  let json: any = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+
   if (!res.ok) {
+    const errCode = String(json?.error || "");
+    if (errCode === "UNAUTHORIZED") throw new Error("נדרש להתחבר מחדש כדי לנתח תמונה.");
+    if (errCode === "FORBIDDEN") throw new Error("החשבון הנוכחי אינו מורשה לניתוח OCR.");
+    if (errCode === "NO_TEXT_DETECTED") throw new Error("לא הצלחנו לזהות טקסט בתמונה.");
     throw new Error("שירות ה-OCR לא זמין כרגע.");
   }
 
-  const json = await res.json();
-  const parsedText = String(json?.ParsedResults?.[0]?.ParsedText || "").trim();
+  const parsedText = String(json?.parsedText || "").trim();
   if (!parsedText) {
     throw new Error("לא הצלחנו לזהות טקסט בתמונה.");
   }
   return parsedText;
 }
-
 function clampInt(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min;
   return Math.max(min, Math.min(max, Math.trunc(n)));
@@ -192,7 +208,7 @@ export default function AddEntryPage() {
   const [description, setDescription] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
 
-  // תשלומים
+  // ׳×׳©׳׳•׳׳™׳
   const [installments, setInstallments] = useState<number>(1);
   const [chargeDay, setChargeDay] = useState<number>(1);
 
@@ -203,7 +219,7 @@ export default function AddEntryPage() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
 
   const categories = useMemo(() => {
-    return kind === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+    return kind === "income" ? ADD_ENTRY_INCOME_CATEGORIES : ADD_ENTRY_EXPENSE_CATEGORIES;
   }, [kind]);
 
   const showPayments = kind !== "income";
@@ -217,11 +233,11 @@ export default function AddEntryPage() {
     resetMessages();
 
     if (!date) {
-      setErr("נא לבחור תאריך.");
+      setErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳×׳׳¨׳™׳.");
       return null;
     }
     if (!category) {
-      setErr("נא לבחור קטגוריה.");
+      setErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳§׳˜׳’׳•׳¨׳™׳”.");
       return null;
     }
 
@@ -229,11 +245,11 @@ export default function AddEntryPage() {
     const n = Number(normalized);
 
     if (!normalized || Number.isNaN(n) || !Number.isFinite(n)) {
-      setErr("נא להזין סכום תקין.");
+      setErr("׳ ׳ ׳׳”׳–׳™׳ ׳¡׳›׳•׳ ׳×׳§׳™׳.");
       return null;
     }
     if (n <= 0) {
-      setErr("הסכום חייב להיות גדול מאפס.");
+      setErr("׳”׳¡׳›׳•׳ ׳—׳™׳™׳‘ ׳׳”׳™׳•׳× ׳’׳“׳•׳ ׳׳׳₪׳¡.");
       return null;
     }
 
@@ -241,11 +257,11 @@ export default function AddEntryPage() {
     const chargeDayNumber = showPayments ? clampInt(Number(chargeDay), 1, 28) : 1;
 
     if (showPayments && installmentsNumber < 1) {
-      setErr("מספר התשלומים חייב להיות 1 או יותר.");
+      setErr("׳׳¡׳₪׳¨ ׳”׳×׳©׳׳•׳׳™׳ ׳—׳™׳™׳‘ ׳׳”׳™׳•׳× 1 ׳׳• ׳™׳•׳×׳¨.");
       return null;
     }
     if (showPayments && (chargeDayNumber < 1 || chargeDayNumber > 28)) {
-      setErr("יום חיוב חייב להיות בין 1 ל-28.");
+      setErr("׳™׳•׳ ׳—׳™׳•׳‘ ׳—׳™׳™׳‘ ׳׳”׳™׳•׳× ׳‘׳™׳ 1 ׳-28.");
       return null;
     }
 
@@ -260,10 +276,11 @@ export default function AddEntryPage() {
 
     const user = auth.currentUser;
     if (!user || !user.email) {
-      setErr("אין משתמש מחובר. אנא התחבר מחדש.");
+      setErr("׳׳™׳ ׳׳©׳×׳׳© ׳׳—׳•׳‘׳¨. ׳׳ ׳ ׳”׳×׳—׳‘׳¨ ׳׳—׳“׳©.");
       return;
     }
 
+    const householdId = householdIdFromEmail(user.email);
     setSaving(true);
     resetMessages();
 
@@ -274,7 +291,7 @@ export default function AddEntryPage() {
       const createdAtBase = Date.now();
       const installmentGroupId = `${createdAtBase}-${Math.random().toString(16).slice(2)}`;
 
-      // אם אין תשלומים או זו הכנסה - נשמור מסמך אחד רגיל
+      // ׳׳ ׳׳™׳ ׳×׳©׳׳•׳׳™׳ ׳׳• ׳–׳• ׳”׳›׳ ׳¡׳” - ׳ ׳©׳׳•׳¨ ׳׳¡׳׳ ׳׳—׳“ ׳¨׳’׳™׳
       if (!showPayments || v.installmentsNumber === 1) {
         const payload: Omit<EntryDoc, "id"> = {
           type,
@@ -285,6 +302,8 @@ export default function AddEntryPage() {
           description: description.trim(),
           amount: v.amountNumber,
           userKey: userKeyFromEmail(user.email),
+          ownerUid: user.uid,
+          householdId,
 
           createdAt: createdAtBase,
           createdBy: user.email,
@@ -304,7 +323,7 @@ export default function AddEntryPage() {
         batch.set(ref, payload as any);
         await batch.commit();
 
-        setOk("נשמר בהצלחה.");
+        setOk("׳ ׳©׳׳¨ ׳‘׳”׳¦׳׳—׳”.");
       } else {
         const nInst = v.installmentsNumber;
         const amounts = splitAmountToInstallments(v.amountNumber, nInst);
@@ -330,7 +349,7 @@ export default function AddEntryPage() {
             chargeISO = toISODate(chargeDate);
           }
 
-          // תיקון: אם אין תיאור - נשמור תיאור ריק, כדי שלא תהיה כפילות עם התג במסך תנועות
+          // ׳×׳™׳§׳•׳: ׳׳ ׳׳™׳ ׳×׳™׳׳•׳¨ - ׳ ׳©׳׳•׳¨ ׳×׳™׳׳•׳¨ ׳¨׳™׳§, ׳›׳“׳™ ׳©׳׳ ׳×׳”׳™׳” ׳›׳₪׳™׳׳•׳× ׳¢׳ ׳”׳×׳’ ׳‘׳׳¡׳ ׳×׳ ׳•׳¢׳•׳×
           const descFinal = descBase;
 
           const payload: Omit<EntryDoc, "id"> = {
@@ -342,6 +361,8 @@ export default function AddEntryPage() {
             description: descFinal,
             amount: amounts[i - 1],
             userKey: userKeyFromEmail(user.email),
+            ownerUid: user.uid,
+            householdId,
 
             createdAt: createdAtBase + i,
             createdBy: user.email,
@@ -357,7 +378,7 @@ export default function AddEntryPage() {
         }
 
         await batch.commit();
-        setOk(`נשמר בהצלחה - נוצרו ${nInst} תשלומים.`);
+        setOk(`׳ ׳©׳׳¨ ׳‘׳”׳¦׳׳—׳” - ׳ ׳•׳¦׳¨׳• ${nInst} ׳×׳©׳׳•׳׳™׳.`);
       }
 
       setCategory("");
@@ -366,7 +387,7 @@ export default function AddEntryPage() {
       setInstallments(1);
       setChargeDay(1);
     } catch (ex: any) {
-      setErr(ex?.message || "שגיאה בשמירה. בדוק הרשאות Firestore.");
+      setErr(ex?.message || "׳©׳’׳™׳׳” ׳‘׳©׳׳™׳¨׳”. ׳‘׳“׳•׳§ ׳”׳¨׳©׳׳•׳× Firestore.");
     } finally {
       setSaving(false);
     }
@@ -374,13 +395,13 @@ export default function AddEntryPage() {
 
   async function onImportImage() {
     if (!selectedImage) {
-      setErr("נא לבחור תמונה לפני ניתוח.");
+      setErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳×׳׳•׳ ׳” ׳׳₪׳ ׳™ ׳ ׳™׳×׳•׳—.");
       return;
     }
 
     const user = auth.currentUser;
     if (!user || !user.email) {
-      setErr("אין משתמש מחובר. אנא התחבר מחדש.");
+      setErr("׳׳™׳ ׳׳©׳×׳׳© ׳׳—׳•׳‘׳¨. ׳׳ ׳ ׳”׳×׳—׳‘׳¨ ׳׳—׳“׳©.");
       return;
     }
 
@@ -389,11 +410,12 @@ export default function AddEntryPage() {
 
     try {
       const hash = await fileSha256(selectedImage);
-      const importMarkerRef = doc(collection(db, "imageImports"), imageImportDocId(user.email, hash));
+      const householdId = householdIdFromEmail(user.email);
+      const importMarkerRef = doc(collection(db, "imageImports"), imageImportDocId(householdId, hash));
       const importMarker = await getDoc(importMarkerRef);
 
       if (importMarker.exists()) {
-        setErr("התמונה הזו כבר הועלתה בעבר, לא נוספו שורות חדשות.");
+        setErr("׳”׳×׳׳•׳ ׳” ׳”׳–׳• ׳›׳‘׳¨ ׳”׳•׳¢׳׳×׳” ׳‘׳¢׳‘׳¨, ׳׳ ׳ ׳•׳¡׳₪׳• ׳©׳•׳¨׳•׳× ׳—׳“׳©׳•׳×.");
         return;
       }
 
@@ -401,7 +423,7 @@ export default function AddEntryPage() {
       const parsedExpenses = parseExpensesFromOCRText(text);
 
       if (!parsedExpenses.length) {
-        setErr("לא נמצאו שורות הוצאה תקינות בתמונה.");
+        setErr("׳׳ ׳ ׳׳¦׳׳• ׳©׳•׳¨׳•׳× ׳”׳•׳¦׳׳” ׳×׳§׳™׳ ׳•׳× ׳‘׳×׳׳•׳ ׳”.");
         return;
       }
 
@@ -411,23 +433,33 @@ export default function AddEntryPage() {
       });
 
       if (!uniqueParsed.length) {
-        setErr("כל הרשומות בתמונה נראו כפולות ולא נוספו.");
+        setErr("׳›׳ ׳”׳¨׳©׳•׳׳•׳× ׳‘׳×׳׳•׳ ׳” ׳ ׳¨׳׳• ׳›׳₪׳•׳׳•׳× ׳•׳׳ ׳ ׳•׳¡׳₪׳•.");
         return;
       }
 
+      const monthsToScan = Array.from(new Set(uniqueParsed.map((expense) => monthKeyFromISO(expense.date))));
       const existingFingerprints = new Set<string>();
-      for (const expense of uniqueParsed) {
+
+      for (const mk of monthsToScan) {
         const q = query(
           collection(db, "records"),
-          where("createdBy", "==", user.email),
-          where("date", "==", expense.date),
-          where("amount", "==", expense.amount),
-          where("category", "==", expense.category)
+          where("householdId", "==", householdId),
+          where("type", "==", "expense"),
+          where("monthKey", "==", mk)
         );
         const snap = await getDocs(q);
-        if (!snap.empty) {
-          existingFingerprints.add(buildExpenseFingerprint(expense.date, expense.amount, expense.category));
-        }
+
+        snap.forEach((docSnap) => {
+          const data = docSnap.data() as Partial<EntryDoc>;
+          if (data.subType && data.subType !== "variable") return;
+
+          const date = String(data.date || "").trim();
+          const category = String(data.category || "").trim();
+          const amount = Number(data.amount || 0);
+
+          if (!date || !category || !Number.isFinite(amount)) return;
+          existingFingerprints.add(buildExpenseFingerprint(date, amount, category));
+        });
       }
 
       const newExpenses = uniqueParsed.filter(
@@ -435,7 +467,7 @@ export default function AddEntryPage() {
       );
 
       if (!newExpenses.length) {
-        setErr("לא נוספו הוצאות: כל הרשומות כבר קיימות במערכת.");
+        setErr("׳׳ ׳ ׳•׳¡׳₪׳• ׳”׳•׳¦׳׳•׳×: ׳›׳ ׳”׳¨׳©׳•׳׳•׳× ׳›׳‘׳¨ ׳§׳™׳™׳׳•׳× ׳‘׳׳¢׳¨׳›׳×.");
         return;
       }
 
@@ -453,6 +485,8 @@ export default function AddEntryPage() {
           description: expense.description,
           amount: expense.amount,
           userKey: userKeyFromEmail(user.email as string),
+          ownerUid: user.uid,
+          householdId,
           createdAt: createdAtBase + index,
           createdBy: user.email as string,
           importHash: hash,
@@ -467,6 +501,8 @@ export default function AddEntryPage() {
       await batch.commit();
       await setDoc(importMarkerRef, {
         hash,
+        householdId,
+        ownerUid: user.uid,
         createdBy: user.email,
         sourceName: selectedImage.name,
         rowsParsed: parsedExpenses.length,
@@ -478,24 +514,24 @@ export default function AddEntryPage() {
       const skippedDuplicates = uniqueParsed.length - newExpenses.length;
       setOk(
         skippedDuplicates > 0
-          ? `היבוא הושלם בהצלחה. נוספו ${newExpenses.length} הוצאות, ודולגו ${skippedDuplicates} כפילויות.`
-          : `היבוא הושלם בהצלחה. נוספו ${newExpenses.length} הוצאות.`
+          ? `׳”׳™׳‘׳•׳ ׳”׳•׳©׳׳ ׳‘׳”׳¦׳׳—׳”. ׳ ׳•׳¡׳₪׳• ${newExpenses.length} ׳”׳•׳¦׳׳•׳×, ׳•׳“׳•׳׳’׳• ${skippedDuplicates} ׳›׳₪׳™׳׳•׳™׳•׳×.`
+          : `׳”׳™׳‘׳•׳ ׳”׳•׳©׳׳ ׳‘׳”׳¦׳׳—׳”. ׳ ׳•׳¡׳₪׳• ${newExpenses.length} ׳”׳•׳¦׳׳•׳×.`
       );
       setSelectedImage(null);
     } catch (ex: any) {
-      setErr(ex?.message || "שגיאה בניתוח ושמירת נתוני התמונה.");
+      setErr(ex?.message || "׳©׳’׳™׳׳” ׳‘׳ ׳™׳×׳•׳— ׳•׳©׳׳™׳¨׳× ׳ ׳×׳•׳ ׳™ ׳”׳×׳׳•׳ ׳”.");
     } finally {
       setUploadingImage(false);
     }
   }
 
   return (
-    <AppLayout title="הוספה">
+    <AppLayout title="׳”׳•׳¡׳₪׳”">
       <div className="card">
-        <h2>הוספת תנועה</h2>
+        <h2>׳”׳•׳¡׳₪׳× ׳×׳ ׳•׳¢׳”</h2>
 
         <div className="grid" style={{ gap: 8, marginBottom: 12 }}>
-          <label>יבוא הוצאות מתמונה (למשל חיובי אשראי)</label>
+          <label>׳™׳‘׳•׳ ׳”׳•׳¦׳׳•׳× ׳׳×׳׳•׳ ׳” (׳׳׳©׳ ׳—׳™׳•׳‘׳™ ׳׳©׳¨׳׳™)</label>
           <input
             className="input"
             type="file"
@@ -508,10 +544,10 @@ export default function AddEntryPage() {
           />
           <div className="row" style={{ justifyContent: "space-between" }}>
             <div className="muted" style={{ fontSize: 12 }}>
-              המערכת תסרוק את הטקסט בתמונה ותוסיף שורות: תאריך, סכום וקטגוריה משוערת.
+              ׳”׳׳¢׳¨׳›׳× ׳×׳¡׳¨׳•׳§ ׳׳× ׳”׳˜׳§׳¡׳˜ ׳‘׳×׳׳•׳ ׳” ׳•׳×׳•׳¡׳™׳£ ׳©׳•׳¨׳•׳×: ׳×׳׳¨׳™׳, ׳¡׳›׳•׳ ׳•׳§׳˜׳’׳•׳¨׳™׳” ׳׳©׳•׳¢׳¨׳×.
             </div>
             <button className="btn secondary" type="button" onClick={onImportImage} disabled={saving || uploadingImage}>
-              {uploadingImage ? "מנתח תמונה..." : "נתח והוסף הוצאות"}
+              {uploadingImage ? "׳׳ ׳×׳— ׳×׳׳•׳ ׳”..." : "׳ ׳×׳— ׳•׳”׳•׳¡׳£ ׳”׳•׳¦׳׳•׳×"}
             </button>
           </div>
         </div>
@@ -519,7 +555,7 @@ export default function AddEntryPage() {
         <form onSubmit={onSubmit} className="grid" style={{ gap: 12 }}>
           <div className="form-grid">
             <div className="grid" style={{ gap: 6 }}>
-              <label>סוג</label>
+              <label>׳¡׳•׳’</label>
               <select
                 className="input"
                 value={kind}
@@ -536,13 +572,13 @@ export default function AddEntryPage() {
                 }}
                 disabled={saving}
               >
-                <option value="expense_variable">הוצאה (משתנה)</option>
-                <option value="income">הכנסה</option>
+                <option value="expense_variable">׳”׳•׳¦׳׳” (׳׳©׳×׳ ׳”)</option>
+                <option value="income">׳”׳›׳ ׳¡׳”</option>
               </select>
             </div>
 
             <div className="grid" style={{ gap: 6 }}>
-              <label>תאריך</label>
+              <label>׳×׳׳¨׳™׳</label>
               <input
                 className="input"
                 type="date"
@@ -558,7 +594,7 @@ export default function AddEntryPage() {
 
           <div className="form-grid">
             <div className="grid" style={{ gap: 6 }}>
-              <label>קטגוריה</label>
+              <label>׳§׳˜׳’׳•׳¨׳™׳”</label>
               <select
                 className="input"
                 value={category}
@@ -568,7 +604,7 @@ export default function AddEntryPage() {
                 }}
                 disabled={saving}
               >
-                <option value="">בחר קטגוריה</option>
+                <option value="">׳‘׳—׳¨ ׳§׳˜׳’׳•׳¨׳™׳”</option>
                 {categories.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -578,7 +614,7 @@ export default function AddEntryPage() {
             </div>
 
             <div className="grid" style={{ gap: 6 }}>
-              <label>סכום</label>
+              <label>׳¡׳›׳•׳</label>
               <input
                 className="input"
                 inputMode="decimal"
@@ -587,7 +623,7 @@ export default function AddEntryPage() {
                   setAmount(e.target.value);
                   resetMessages();
                 }}
-                placeholder="לדוגמה: 120"
+                placeholder="׳׳“׳•׳’׳׳”: 120"
                 disabled={saving}
               />
             </div>
@@ -596,7 +632,7 @@ export default function AddEntryPage() {
           {showPayments ? (
             <div className="form-grid">
               <div className="grid" style={{ gap: 6 }}>
-                <label>מספר תשלומים</label>
+                <label>׳׳¡׳₪׳¨ ׳×׳©׳׳•׳׳™׳</label>
                 <input
                   className="input"
                   type="number"
@@ -613,7 +649,7 @@ export default function AddEntryPage() {
               </div>
 
               <div className="grid" style={{ gap: 6 }}>
-                <label>יום חיוב</label>
+                <label>׳™׳•׳ ׳—׳™׳•׳‘</label>
                 <input
                   className="input"
                   type="number"
@@ -633,12 +669,12 @@ export default function AddEntryPage() {
 
           {showPayments ? (
             <div className="muted" style={{ fontSize: 12 }}>
-              תשלום ראשון לפי תאריך העסקה. תשלומים 2 ומעלה לפי יום החיוב בחודשים העוקבים. תג ״תשלום X/Y״ מוצג במסך ״תנועות״ בלבד.
+              ׳×׳©׳׳•׳ ׳¨׳׳©׳•׳ ׳׳₪׳™ ׳×׳׳¨׳™׳ ׳”׳¢׳¡׳§׳”. ׳×׳©׳׳•׳׳™׳ 2 ׳•׳׳¢׳׳” ׳׳₪׳™ ׳™׳•׳ ׳”׳—׳™׳•׳‘ ׳‘׳—׳•׳“׳©׳™׳ ׳”׳¢׳•׳§׳‘׳™׳. ׳×׳’ ׳´׳×׳©׳׳•׳ X/Y׳´ ׳׳•׳¦׳’ ׳‘׳׳¡׳ ׳´׳×׳ ׳•׳¢׳•׳×׳´ ׳‘׳׳‘׳“.
             </div>
           ) : null}
 
           <div className="grid" style={{ gap: 6 }}>
-            <label>תיאור</label>
+            <label>׳×׳™׳׳•׳¨</label>
             <input
               className="input"
               value={description}
@@ -646,7 +682,7 @@ export default function AddEntryPage() {
                 setDescription(e.target.value);
                 resetMessages();
               }}
-              placeholder="לדוגמה: קניות בסופר"
+              placeholder="׳׳“׳•׳’׳׳”: ׳§׳ ׳™׳•׳× ׳‘׳¡׳•׳₪׳¨"
               disabled={saving}
             />
           </div>
@@ -656,7 +692,7 @@ export default function AddEntryPage() {
 
           <div className="row" style={{ justifyContent: "space-between" }}>
             <button className="btn" type="submit" disabled={saving}>
-              {saving ? "שומר..." : "שמור"}
+              {saving ? "׳©׳•׳׳¨..." : "׳©׳׳•׳¨"}
             </button>
 
             <button
@@ -674,7 +710,7 @@ export default function AddEntryPage() {
                 resetMessages();
               }}
             >
-              נקה
+              ׳ ׳§׳”
             </button>
           </div>
         </form>
@@ -682,3 +718,13 @@ export default function AddEntryPage() {
     </AppLayout>
   );
 }
+
+
+
+
+
+
+
+
+
+

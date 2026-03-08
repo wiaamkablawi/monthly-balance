@@ -1,4 +1,14 @@
-{
+﻿{
+  "functions": {
+    "source": "functions"
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "hosting": {
     "public": "dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
@@ -11,6 +21,7 @@
       }
     ],
     "rewrites": [
+      { "source": "/api/ocr/parse", "function": "ocrParse" },
       { "source": "**", "destination": "/index.html" }
     ]
   }

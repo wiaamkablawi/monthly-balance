@@ -6,14 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "import:december": "node import-december-variable.cjs"
+    "typecheck": "tsc -b",
+    "preview": "vite preview"
   },
   "dependencies": {
     "chart.js": "^4.5.1",
-    "csv-parse": "^6.1.0",
     "firebase": "^10.14.1",
-    "firebase-admin": "^13.6.0",
     "react": "^18.3.1",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.3.1",

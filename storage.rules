@@ -1,0 +1,30 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function authEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function householdIdForEmail(email) {
+      return email.lower() in [
+        "k.wiaam@gmail.com",
+        "boshra.kablawi@gmail.com"
+      ]
+        ? "household_wb"
+        : "forbidden";
+    }
+
+    match /households/{householdId}/{allPaths=**} {
+      allow read, write: if signedIn() && householdId == householdIdForEmail(authEmail());
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

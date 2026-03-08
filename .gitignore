@@ -1,7 +1,9 @@
-# ===============================
+﻿# ===============================
 # Secrets / Environment
 # ===============================
 .env
+.env.local
+.env.*.local
 serviceAccountKey.json
 
 # ===============================
@@ -41,3 +43,5 @@ generate-fixed-month.cjs
 # OS / misc
 # ===============================
 .DS_Store
+functions/.env*
+

@@ -1,7 +1,7 @@
 {
-  "name": "מערכת הוצאות חודשית",
-  "short_name": "הוצאות",
-  "description": "ניהול הוצאות, הכנסות והוצאות קבועות",
+  "name": "Monthly Balance",
+  "short_name": "Balance",
+  "description": "Household income and expense manager",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

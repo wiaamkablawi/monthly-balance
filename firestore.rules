@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function authEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function isAllowedEmail() {
+      return authEmail() in [
+        "k.wiaam@gmail.com",
+        "boshra.kablawi@gmail.com"
+      ];
+    }
+
+    function householdIdForEmail(email) {
+      return email.lower() in [
+        "k.wiaam@gmail.com",
+        "boshra.kablawi@gmail.com"
+      ]
+        ? "household_wb"
+        : "forbidden";
+    }
+
+    function authHouseholdId() {
+      return householdIdForEmail(authEmail());
+    }
+
+    function canAccessHouseholdDoc(data) {
+      return signedIn()
+        && isAllowedEmail()
+        && data.householdId is string
+        && data.householdId == authHouseholdId();
+    }
+
+    match /records/{recordId} {
+      allow read: if canAccessHouseholdDoc(resource.data);
+
+      allow create: if signedIn()
+        && isAllowedEmail()
+        && request.resource.data.householdId == authHouseholdId()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.createdBy == authEmail()
+        && request.resource.data.monthKey is string;
+
+      allow update: if canAccessHouseholdDoc(resource.data)
+        && canAccessHouseholdDoc(request.resource.data)
+        && request.resource.data.householdId == resource.data.householdId
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.createdBy == resource.data.createdBy;
+
+      allow delete: if canAccessHouseholdDoc(resource.data);
+    }
+
+    match /fixed_templates/{templateId} {
+      allow read: if canAccessHouseholdDoc(resource.data);
+
+      allow create: if signedIn()
+        && isAllowedEmail()
+        && request.resource.data.householdId == authHouseholdId()
+        && request.resource.data.createdBy == authEmail();
+
+      allow update: if canAccessHouseholdDoc(resource.data)
+        && canAccessHouseholdDoc(request.resource.data)
+        && request.resource.data.householdId == resource.data.householdId;
+
+      allow delete: if canAccessHouseholdDoc(resource.data);
+    }
+
+    match /imageImports/{docId} {
+      allow read: if canAccessHouseholdDoc(resource.data);
+
+      allow create: if signedIn()
+        && isAllowedEmail()
+        && request.resource.data.householdId == authHouseholdId()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.createdBy == authEmail();
+
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}
+

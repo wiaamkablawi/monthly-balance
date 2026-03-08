@@ -1,15 +1,17 @@
-import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 import AppLayout from "../app/layout/AppLayout";
 import { currentMonthKey, monthKeyFromISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
-import { db } from "../services/firebase";
+import { auth } from "../services/firebase";
+import { db } from "../services/firebaseDb";
 import type { EntryDoc } from "../types/models";
+import { householdIdFromEmail } from "../services/authService";
 import {
   collection,
   deleteDoc,
   doc,
   getDocs,
-  orderBy,
+
   query,
   updateDoc,
   where,
@@ -37,53 +39,44 @@ export default function TransactionsPage() {
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+        async function load() {
       setState("loading");
       setErr("");
 
       try {
-  const qByMonthKey = query(
-  collection(db, "records"),
-  where("monthKey", "==", monthKey)
-);
+        const user = auth.currentUser;
+        if (!user?.email) {
+          setItems([]);
+          setState("ready");
+          return;
+        }
 
-const qByMonth = query(
-  collection(db, "records"),
-  where("month", "==", monthKey)
-);
+        const householdId = householdIdFromEmail(user.email);
+        const qByMonthKey = query(
+          collection(db, "records"),
+          where("householdId", "==", householdId),
+          where("monthKey", "==", monthKey)
+        );
 
-const [snapKey, snapMonth] = await Promise.all([getDocs(qByMonthKey), getDocs(qByMonth)]);
-if (cancelled) return;
+        const snap = await getDocs(qByMonthKey);
+        if (cancelled) return;
 
-const seen = new Set<string>();
-const list: EntryDoc[] = [];
+        const list: EntryDoc[] = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<EntryDoc, "id">),
+        }));
 
-const pushSnap = (snap: any) => {
-  snap.forEach((d: any) => {
-    if (seen.has(d.id)) return;
-    seen.add(d.id);
-    list.push({ id: d.id, ...(d.data() as any) } as EntryDoc);
-  });
-};
+        list.sort((a, b) => {
+          const aT = Number(a.updatedAt || a.createdAt || 0);
+          const bT = Number(b.updatedAt || b.createdAt || 0);
+          return bT - aT;
+        });
 
-pushSnap(snapKey);
-pushSnap(snapMonth);
-
-// מיון מקומי כדי להימנע מתלות ב-orderBy ואינדקסים
-list.sort((a: any, b: any) => {
-  const aT = Number(a?.updatedAt || a?.createdAt || 0);
-  const bT = Number(b?.updatedAt || b?.createdAt || 0);
-  return bT - aT;
-});
-
-setItems(list);
-setState("ready");
-
-
-
+        setItems(list);
+        setState("ready");
       } catch (e: any) {
         if (!cancelled) {
-          setErr(e.message || "שגיאה בטעינה");
+          setErr(e.message || "׳©׳’׳™׳׳” ׳‘׳˜׳¢׳™׳ ׳”");
           setState("error");
         }
       }
@@ -113,27 +106,26 @@ setState("ready");
   async function saveEdit(it: EntryDoc) {
     const mk = monthKeyFromISO(editDate);
 
-await updateDoc(doc(db, "records", it.id), {
-  date: editDate,
-  monthKey: mk,
-  month: mk,
-  category: editCategory,
-  description: editDescription,
-  amount: Number(editAmount),
-  updatedAt: Date.now(),
-});
+    await updateDoc(doc(db, "records", it.id), {
+      date: editDate,
+      monthKey: mk,
+      category: editCategory,
+      description: editDescription,
+      amount: Number(editAmount),
+      updatedAt: Date.now(),
+    });
 
     setEditingId(null);
   }
 
   async function onDelete(it: EntryDoc) {
-    if (!window.confirm("למחוק את התנועה?")) return;
+    if (!window.confirm("׳׳׳—׳•׳§ ׳׳× ׳”׳×׳ ׳•׳¢׳”?")) return;
     await deleteDoc(doc(db, "records", it.id));
     setItems((prev) => prev.filter((x) => x.id !== it.id));
   }
 
   /* =========================
-     Swipe logic – FIXED
+     Swipe logic ג€“ FIXED
   ========================= */
  function onPointerDown(e: React.PointerEvent, id: string) {
   const row = (e.currentTarget as HTMLElement).closest(
@@ -144,9 +136,9 @@ await updateDoc(doc(db, "records", it.id), {
   const contentEl = row.querySelector(".swipe-content");
   if (!(contentEl instanceof HTMLElement)) return;
 
-  const content = contentEl; // מעכשיו non-null ו-type-safe
+  const content = contentEl; // ׳׳¢׳›׳©׳™׳• non-null ׳•-type-safe
 
-  // סגירת swipe פתוח קודם
+  // ׳¡׳’׳™׳¨׳× swipe ׳₪׳×׳•׳— ׳§׳•׳“׳
   if (openSwipeId.current && openSwipeId.current !== id) {
     const prev = document.querySelector(
       `[data-swipe-id="${openSwipeId.current}"] .swipe-content`
@@ -200,9 +192,9 @@ await updateDoc(doc(db, "records", it.id), {
      Render
   ========================= */
   return (
-    <AppLayout title="תנועות">
+    <AppLayout title="׳×׳ ׳•׳¢׳•׳×">
       <div className="card">
-        <label>חודש</label>
+        <label>׳—׳•׳“׳©</label>
         <select
           className="input"
           value={monthKey}
@@ -247,13 +239,13 @@ await updateDoc(doc(db, "records", it.id), {
                     className="swipe-btn edit"
                     onClick={() => startEdit(it)}
                   >
-                    ערוך
+                    ׳¢׳¨׳•׳
                   </button>
                   <button
                     className="swipe-btn delete"
                     onClick={() => onDelete(it)}
                   >
-                    מחק
+                    ׳׳—׳§
                   </button>
                 </div>
 
@@ -262,11 +254,11 @@ await updateDoc(doc(db, "records", it.id), {
                   onPointerDown={(e) => onPointerDown(e, it.id)}
                 >
                   <div className="txn-title">
-                    {formatILS(it.amount)} –{" "}
-                    {it.category || "ללא קטגוריה"}
+                    {formatILS(it.amount)} ג€“{" "}
+                    {it.category || "׳׳׳ ׳§׳˜׳’׳•׳¨׳™׳”"}
                   </div>
                   <div className="txn-sub">
-                    {it.description || "ללא תיאור"}
+                    {it.description || "׳׳׳ ׳×׳™׳׳•׳¨"}
                   </div>
                   <div className="txn-date">
                     {String(it.date || "")}
@@ -305,13 +297,13 @@ await updateDoc(doc(db, "records", it.id), {
                         className="btn"
                         onClick={() => saveEdit(it)}
                       >
-                        שמור
+                        ׳©׳׳•׳¨
                       </button>
                       <button
                         className="btn secondary"
                         onClick={cancelEdit}
                       >
-                        בטל
+                        ׳‘׳˜׳
                       </button>
                     </div>
                   )}
@@ -324,3 +316,6 @@ await updateDoc(doc(db, "records", it.id), {
     </AppLayout>
   );
 }
+
+
+

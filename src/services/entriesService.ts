@@ -1,30 +1,30 @@
-import { addDoc, collection } from "firebase/firestore";
+﻿import { addDoc, collection } from "firebase/firestore";
 import { auth } from "./firebase";
-import { db } from "./firebase";
-import { userKeyFromEmail } from "./authService";
+import { db } from "./firebaseDb";
+import { householdIdFromEmail, userKeyFromEmail } from "./authService";
 import type { EntryDoc } from "../types/models";
 
 function monthFromDate(date: string): string {
-  // מצפה לפורמט YYYY-MM-DD
   if (!date || date.length < 7) return new Date().toISOString().slice(0, 7);
   return date.slice(0, 7);
 }
 
 export async function addEntry(doc: Omit<EntryDoc, "id">): Promise<string> {
-  const email = auth.currentUser?.email?.toLowerCase() || "";
+  const user = auth.currentUser;
+  const email = user?.email?.toLowerCase() || "";
 
-  type EntryWrite = Omit<EntryDoc, "id"> & {
-    month?: string;
-  };
-
-  const payload: EntryWrite = {
+  const payload: Omit<EntryDoc, "id"> = {
     ...doc,
     createdBy: doc.createdBy || email,
+    ownerUid: doc.ownerUid || user?.uid || "",
+    householdId: doc.householdId || householdIdFromEmail(email),
     userKey: doc.userKey || userKeyFromEmail(doc.createdBy || email),
-    month: doc.month || monthFromDate(doc.date || ""),
+    monthKey: doc.monthKey || monthFromDate(doc.date || ""),
     createdAt: doc.createdAt || Date.now(),
   };
 
   const ref = await addDoc(collection(db, "records"), payload);
   return ref.id;
 }
+
+

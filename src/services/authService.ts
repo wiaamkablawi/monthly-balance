@@ -12,6 +12,8 @@ const ALLOWED_EMAILS = new Set([
   "boshra.kablawi@gmail.com",
 ]);
 
+const HOUSEHOLD_ID = "household_wb";
+
 const googleProvider = new GoogleAuthProvider();
 
 export function watchAuth(cb: (u: User | null) => void): () => void {
@@ -30,7 +32,7 @@ export function watchAuth(cb: (u: User | null) => void): () => void {
 
 export async function loginWithGoogle(): Promise<void> {
   if (!isFirebaseConfigured) {
-    throw new Error("התחברות Google אינה זמינה עד להגדרת VITE_FIREBASE_* בקובץ .env.");
+    throw new Error("Google login is unavailable until VITE_FIREBASE_* variables are configured.");
   }
 
   const result = await signInWithPopup(auth, googleProvider);
@@ -38,12 +40,20 @@ export async function loginWithGoogle(): Promise<void> {
 
   if (!ALLOWED_EMAILS.has(email)) {
     await signOut(auth);
-    throw new Error("החשבון אינו מורשה להתחברות למערכת.");
+    throw new Error("This account is not authorized to access the system.");
   }
 }
 
 export async function logout(): Promise<void> {
   await signOut(auth);
+}
+
+export function isAllowedEmail(email?: string | null): boolean {
+  return ALLOWED_EMAILS.has((email || "").toLowerCase());
+}
+
+export function householdIdFromEmail(email?: string | null): string {
+  return isAllowedEmail(email) ? HOUSEHOLD_ID : "forbidden";
 }
 
 export function userKeyFromEmail(email?: string | null): "W" | "B" {
