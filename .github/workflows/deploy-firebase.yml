@@ -1,4 +1,4 @@
-﻿name: Deploy to Firebase
+name: Deploy to Firebase
 
 on:
   push:
@@ -43,11 +43,16 @@ jobs:
           EOF
 
       - name: Inject Functions envs
+        env:
+          OCR_SPACE_API_KEY: ${{ secrets.OCR_SPACE_API_KEY }}
+          ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}
         run: |
-          cat > functions/.env << 'EOF'
-          OCR_SPACE_API_KEY="${{ secrets.OCR_SPACE_API_KEY }}"
-          ALLOWED_EMAILS="${{ secrets.ALLOWED_EMAILS }}"
-          EOF
+          normalized_ocr_api_key="$(printf '%s' "$OCR_SPACE_API_KEY" | tr -d '\r\n' | sed -E "s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/[\"'[:space:]]//g")"
+          normalized_allowed_emails="$(printf '%s' "$ALLOWED_EMAILS" | tr '\r\n' ',,' | sed -E "s/^[[:space:]]*const[[:space:]]+allowedEmails[[:space:]]*=[[:space:]]*//I; s/[\"']//g; s/[[:space:]]//g; s/,,*/,/g; s/^,*//; s/,*$//")"
+          {
+            printf 'OCR_SPACE_API_KEY=%s\n' "$normalized_ocr_api_key"
+            printf 'ALLOWED_EMAILS=%s\n' "$normalized_allowed_emails"
+          } > functions/.env
 
       - name: Build project
         run: npm run build
@@ -77,4 +82,3 @@ jobs:
           firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_MONTHLY_BALANCE }}"
           projectId: "monthly-balance-548d1"
           channelId: "${{ env.CHANNEL_ID }}"
-
