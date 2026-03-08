@@ -1,8 +1,8 @@
-﻿import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 
 /**
- * ׳”׳’׳“׳¨׳” ׳“׳¨׳ ׳§׳•׳‘׳¥ .env (׳׳ ׳׳©׳™׳ ׳׳₪׳×׳—׳•׳× ׳‘׳§׳•׳“)
+ * הגדרה דרך קובץ .env (לא לשים מפתחות בקוד)
  * VITE_FIREBASE_API_KEY=...
  * VITE_FIREBASE_AUTH_DOMAIN=...
  * VITE_FIREBASE_PROJECT_ID=...

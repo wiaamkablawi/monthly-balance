@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import AppLayout from "../app/layout/AppLayout";
 import { monthKeyFromISO, todayISO } from "../utils/dates";
 import { auth } from "../services/firebase";
@@ -25,13 +25,13 @@ const OCR_PARSE_ENDPOINT = String(
 ).trim();
 
 const CATEGORY_KEYWORDS: Array<{ category: string; keywords: string[] }> = [
-  { category: "׳׳–׳•׳", keywords: ["׳¡׳•׳₪׳¨", "׳׳–׳•׳", "׳׳¡׳¢׳“", "׳§׳₪׳”", "׳׳›׳•׳׳×", "market", "food"] },
-  { category: "׳¨׳›׳‘", keywords: ["׳“׳׳§", "׳₪׳–", "׳¡׳•׳ ׳•׳", "׳¨׳›׳‘", "׳—׳ ׳™׳”", "׳›׳‘׳™׳©", "fuel", "parking"] },
-  { category: "׳—׳©׳‘׳•׳ ׳•׳×", keywords: ["׳—׳©׳׳", "׳׳™׳", "׳׳¨׳ ׳•׳ ׳”", "׳’׳–", "׳—׳©׳‘׳•׳", "bill"] },
-  { category: "׳×׳§׳©׳•׳¨׳×", keywords: ["׳¡׳׳•׳׳¨", "׳׳™׳ ׳˜׳¨׳ ׳˜", "׳˜׳׳₪׳•׳", "׳₪׳¨׳˜׳ ׳¨", "׳¡׳׳§׳•׳", "׳₪׳׳׳₪׳•׳"] },
-  { category: "׳‘׳¨׳™׳׳•׳×", keywords: ["׳‘׳™׳× ׳׳¨׳§׳—׳×", "׳§׳•׳₪׳×", "׳¨׳•׳₪׳", "pharm", "clinic"] },
-  { category: "׳‘׳™׳׳•׳™׳™׳", keywords: ["׳§׳•׳׳ ׳•׳¢", "׳‘׳™׳׳•׳™", "netflix", "spotify", "game"] },
-  { category: "׳“׳™׳•׳¨", keywords: ["׳©׳›׳™׳¨׳•׳×", "׳׳©׳›׳ ׳×", "׳•׳¢׳“ ׳‘׳™׳×", "home", "rent"] },
+  { category: "מזון", keywords: ["סופר", "מזון", "מסעד", "קפה", "מכולת", "market", "food"] },
+  { category: "רכב", keywords: ["דלק", "פז", "סונול", "רכב", "חניה", "כביש", "fuel", "parking"] },
+  { category: "חשבונות", keywords: ["חשמל", "מים", "ארנונה", "גז", "חשבון", "bill"] },
+  { category: "תקשורת", keywords: ["סלולר", "אינטרנט", "טלפון", "פרטנר", "סלקום", "פלאפון"] },
+  { category: "בריאות", keywords: ["בית מרקחת", "קופת", "רופא", "pharm", "clinic"] },
+  { category: "בילויים", keywords: ["קולנוע", "בילוי", "netflix", "spotify", "game"] },
+  { category: "דיור", keywords: ["שכירות", "משכנת", "ועד בית", "home", "rent"] },
 ];
 
 function detectCategory(text: string): string {
@@ -39,7 +39,7 @@ function detectCategory(text: string): string {
   for (const entry of CATEGORY_KEYWORDS) {
     if (entry.keywords.some((keyword) => normalized.includes(keyword))) return entry.category;
   }
-  return "׳׳—׳¨";
+  return "אחר";
 }
 
 function normalizeAmount(raw: string): number | null {
@@ -85,7 +85,7 @@ function parseExpensesFromOCRText(text: string): ParsedExpense[] {
     const amount = normalizeAmount(amountRaw);
     if (!amount || amount <= 0) continue;
 
-    const description = line.slice(0, Math.max(0, line.lastIndexOf(amountRaw))).trim() || "׳¢׳¡׳§׳” ׳׳›׳¨׳˜׳™׳¡ ׳׳©׳¨׳׳™";
+    const description = line.slice(0, Math.max(0, line.lastIndexOf(amountRaw))).trim() || "עסקה מכרטיס אשראי";
 
     out.push({
       date,
@@ -208,7 +208,7 @@ export default function AddEntryPage() {
   const [description, setDescription] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
 
-  // ׳×׳©׳׳•׳׳™׳
+  // תשלומים
   const [installments, setInstallments] = useState<number>(1);
   const [chargeDay, setChargeDay] = useState<number>(1);
 
@@ -233,11 +233,11 @@ export default function AddEntryPage() {
     resetMessages();
 
     if (!date) {
-      setErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳×׳׳¨׳™׳.");
+      setErr("נא לבחור תאריך.");
       return null;
     }
     if (!category) {
-      setErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳§׳˜׳’׳•׳¨׳™׳”.");
+      setErr("נא לבחור קטגוריה.");
       return null;
     }
 
@@ -245,11 +245,11 @@ export default function AddEntryPage() {
     const n = Number(normalized);
 
     if (!normalized || Number.isNaN(n) || !Number.isFinite(n)) {
-      setErr("׳ ׳ ׳׳”׳–׳™׳ ׳¡׳›׳•׳ ׳×׳§׳™׳.");
+      setErr("נא להזין סכום תקין.");
       return null;
     }
     if (n <= 0) {
-      setErr("׳”׳¡׳›׳•׳ ׳—׳™׳™׳‘ ׳׳”׳™׳•׳× ׳’׳“׳•׳ ׳׳׳₪׳¡.");
+      setErr("הסכום חייב להיות גדול מאפס.");
       return null;
     }
 
@@ -257,11 +257,11 @@ export default function AddEntryPage() {
     const chargeDayNumber = showPayments ? clampInt(Number(chargeDay), 1, 28) : 1;
 
     if (showPayments && installmentsNumber < 1) {
-      setErr("׳׳¡׳₪׳¨ ׳”׳×׳©׳׳•׳׳™׳ ׳—׳™׳™׳‘ ׳׳”׳™׳•׳× 1 ׳׳• ׳™׳•׳×׳¨.");
+      setErr("מספר התשלומים חייב להיות 1 או יותר.");
       return null;
     }
     if (showPayments && (chargeDayNumber < 1 || chargeDayNumber > 28)) {
-      setErr("׳™׳•׳ ׳—׳™׳•׳‘ ׳—׳™׳™׳‘ ׳׳”׳™׳•׳× ׳‘׳™׳ 1 ׳-28.");
+      setErr("יום חיוב חייב להיות בין 1 ל-28.");
       return null;
     }
 
@@ -276,7 +276,7 @@ export default function AddEntryPage() {
 
     const user = auth.currentUser;
     if (!user || !user.email) {
-      setErr("׳׳™׳ ׳׳©׳×׳׳© ׳׳—׳•׳‘׳¨. ׳׳ ׳ ׳”׳×׳—׳‘׳¨ ׳׳—׳“׳©.");
+      setErr("אין משתמש מחובר. אנא התחבר מחדש.");
       return;
     }
 
@@ -291,7 +291,7 @@ export default function AddEntryPage() {
       const createdAtBase = Date.now();
       const installmentGroupId = `${createdAtBase}-${Math.random().toString(16).slice(2)}`;
 
-      // ׳׳ ׳׳™׳ ׳×׳©׳׳•׳׳™׳ ׳׳• ׳–׳• ׳”׳›׳ ׳¡׳” - ׳ ׳©׳׳•׳¨ ׳׳¡׳׳ ׳׳—׳“ ׳¨׳’׳™׳
+      // אם אין תשלומים או זו הכנסה - נשמור מסמך אחד רגיל
       if (!showPayments || v.installmentsNumber === 1) {
         const payload: Omit<EntryDoc, "id"> = {
           type,
@@ -323,7 +323,7 @@ export default function AddEntryPage() {
         batch.set(ref, payload as any);
         await batch.commit();
 
-        setOk("׳ ׳©׳׳¨ ׳‘׳”׳¦׳׳—׳”.");
+        setOk("נשמר בהצלחה.");
       } else {
         const nInst = v.installmentsNumber;
         const amounts = splitAmountToInstallments(v.amountNumber, nInst);
@@ -349,7 +349,7 @@ export default function AddEntryPage() {
             chargeISO = toISODate(chargeDate);
           }
 
-          // ׳×׳™׳§׳•׳: ׳׳ ׳׳™׳ ׳×׳™׳׳•׳¨ - ׳ ׳©׳׳•׳¨ ׳×׳™׳׳•׳¨ ׳¨׳™׳§, ׳›׳“׳™ ׳©׳׳ ׳×׳”׳™׳” ׳›׳₪׳™׳׳•׳× ׳¢׳ ׳”׳×׳’ ׳‘׳׳¡׳ ׳×׳ ׳•׳¢׳•׳×
+          // תיקון: אם אין תיאור - נשמור תיאור ריק, כדי שלא תהיה כפילות עם התג במסך תנועות
           const descFinal = descBase;
 
           const payload: Omit<EntryDoc, "id"> = {
@@ -378,7 +378,7 @@ export default function AddEntryPage() {
         }
 
         await batch.commit();
-        setOk(`׳ ׳©׳׳¨ ׳‘׳”׳¦׳׳—׳” - ׳ ׳•׳¦׳¨׳• ${nInst} ׳×׳©׳׳•׳׳™׳.`);
+        setOk(`נשמר בהצלחה - נוצרו ${nInst} תשלומים.`);
       }
 
       setCategory("");
@@ -387,7 +387,7 @@ export default function AddEntryPage() {
       setInstallments(1);
       setChargeDay(1);
     } catch (ex: any) {
-      setErr(ex?.message || "׳©׳’׳™׳׳” ׳‘׳©׳׳™׳¨׳”. ׳‘׳“׳•׳§ ׳”׳¨׳©׳׳•׳× Firestore.");
+      setErr(ex?.message || "שגיאה בשמירה. בדוק הרשאות Firestore.");
     } finally {
       setSaving(false);
     }
@@ -395,13 +395,13 @@ export default function AddEntryPage() {
 
   async function onImportImage() {
     if (!selectedImage) {
-      setErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳×׳׳•׳ ׳” ׳׳₪׳ ׳™ ׳ ׳™׳×׳•׳—.");
+      setErr("נא לבחור תמונה לפני ניתוח.");
       return;
     }
 
     const user = auth.currentUser;
     if (!user || !user.email) {
-      setErr("׳׳™׳ ׳׳©׳×׳׳© ׳׳—׳•׳‘׳¨. ׳׳ ׳ ׳”׳×׳—׳‘׳¨ ׳׳—׳“׳©.");
+      setErr("אין משתמש מחובר. אנא התחבר מחדש.");
       return;
     }
 
@@ -415,7 +415,7 @@ export default function AddEntryPage() {
       const importMarker = await getDoc(importMarkerRef);
 
       if (importMarker.exists()) {
-        setErr("׳”׳×׳׳•׳ ׳” ׳”׳–׳• ׳›׳‘׳¨ ׳”׳•׳¢׳׳×׳” ׳‘׳¢׳‘׳¨, ׳׳ ׳ ׳•׳¡׳₪׳• ׳©׳•׳¨׳•׳× ׳—׳“׳©׳•׳×.");
+        setErr("התמונה הזו כבר הועלתה בעבר, לא נוספו שורות חדשות.");
         return;
       }
 
@@ -423,7 +423,7 @@ export default function AddEntryPage() {
       const parsedExpenses = parseExpensesFromOCRText(text);
 
       if (!parsedExpenses.length) {
-        setErr("׳׳ ׳ ׳׳¦׳׳• ׳©׳•׳¨׳•׳× ׳”׳•׳¦׳׳” ׳×׳§׳™׳ ׳•׳× ׳‘׳×׳׳•׳ ׳”.");
+        setErr("לא נמצאו שורות הוצאה תקינות בתמונה.");
         return;
       }
 
@@ -433,7 +433,7 @@ export default function AddEntryPage() {
       });
 
       if (!uniqueParsed.length) {
-        setErr("׳›׳ ׳”׳¨׳©׳•׳׳•׳× ׳‘׳×׳׳•׳ ׳” ׳ ׳¨׳׳• ׳›׳₪׳•׳׳•׳× ׳•׳׳ ׳ ׳•׳¡׳₪׳•.");
+        setErr("כל הרשומות בתמונה נראו כפולות ולא נוספו.");
         return;
       }
 
@@ -467,7 +467,7 @@ export default function AddEntryPage() {
       );
 
       if (!newExpenses.length) {
-        setErr("׳׳ ׳ ׳•׳¡׳₪׳• ׳”׳•׳¦׳׳•׳×: ׳›׳ ׳”׳¨׳©׳•׳׳•׳× ׳›׳‘׳¨ ׳§׳™׳™׳׳•׳× ׳‘׳׳¢׳¨׳›׳×.");
+        setErr("לא נוספו הוצאות: כל הרשומות כבר קיימות במערכת.");
         return;
       }
 
@@ -514,24 +514,24 @@ export default function AddEntryPage() {
       const skippedDuplicates = uniqueParsed.length - newExpenses.length;
       setOk(
         skippedDuplicates > 0
-          ? `׳”׳™׳‘׳•׳ ׳”׳•׳©׳׳ ׳‘׳”׳¦׳׳—׳”. ׳ ׳•׳¡׳₪׳• ${newExpenses.length} ׳”׳•׳¦׳׳•׳×, ׳•׳“׳•׳׳’׳• ${skippedDuplicates} ׳›׳₪׳™׳׳•׳™׳•׳×.`
-          : `׳”׳™׳‘׳•׳ ׳”׳•׳©׳׳ ׳‘׳”׳¦׳׳—׳”. ׳ ׳•׳¡׳₪׳• ${newExpenses.length} ׳”׳•׳¦׳׳•׳×.`
+          ? `היבוא הושלם בהצלחה. נוספו ${newExpenses.length} הוצאות, ודולגו ${skippedDuplicates} כפילויות.`
+          : `היבוא הושלם בהצלחה. נוספו ${newExpenses.length} הוצאות.`
       );
       setSelectedImage(null);
     } catch (ex: any) {
-      setErr(ex?.message || "׳©׳’׳™׳׳” ׳‘׳ ׳™׳×׳•׳— ׳•׳©׳׳™׳¨׳× ׳ ׳×׳•׳ ׳™ ׳”׳×׳׳•׳ ׳”.");
+      setErr(ex?.message || "שגיאה בניתוח ושמירת נתוני התמונה.");
     } finally {
       setUploadingImage(false);
     }
   }
 
   return (
-    <AppLayout title="׳”׳•׳¡׳₪׳”">
+    <AppLayout title="הוספה">
       <div className="card">
-        <h2>׳”׳•׳¡׳₪׳× ׳×׳ ׳•׳¢׳”</h2>
+        <h2>הוספת תנועה</h2>
 
         <div className="grid" style={{ gap: 8, marginBottom: 12 }}>
-          <label>׳™׳‘׳•׳ ׳”׳•׳¦׳׳•׳× ׳׳×׳׳•׳ ׳” (׳׳׳©׳ ׳—׳™׳•׳‘׳™ ׳׳©׳¨׳׳™)</label>
+          <label>יבוא הוצאות מתמונה (למשל חיובי אשראי)</label>
           <input
             className="input"
             type="file"
@@ -544,10 +544,10 @@ export default function AddEntryPage() {
           />
           <div className="row" style={{ justifyContent: "space-between" }}>
             <div className="muted" style={{ fontSize: 12 }}>
-              ׳”׳׳¢׳¨׳›׳× ׳×׳¡׳¨׳•׳§ ׳׳× ׳”׳˜׳§׳¡׳˜ ׳‘׳×׳׳•׳ ׳” ׳•׳×׳•׳¡׳™׳£ ׳©׳•׳¨׳•׳×: ׳×׳׳¨׳™׳, ׳¡׳›׳•׳ ׳•׳§׳˜׳’׳•׳¨׳™׳” ׳׳©׳•׳¢׳¨׳×.
+              המערכת תסרוק את הטקסט בתמונה ותוסיף שורות: תאריך, סכום וקטגוריה משוערת.
             </div>
             <button className="btn secondary" type="button" onClick={onImportImage} disabled={saving || uploadingImage}>
-              {uploadingImage ? "׳׳ ׳×׳— ׳×׳׳•׳ ׳”..." : "׳ ׳×׳— ׳•׳”׳•׳¡׳£ ׳”׳•׳¦׳׳•׳×"}
+              {uploadingImage ? "מנתח תמונה..." : "נתח והוסף הוצאות"}
             </button>
           </div>
         </div>
@@ -555,7 +555,7 @@ export default function AddEntryPage() {
         <form onSubmit={onSubmit} className="grid" style={{ gap: 12 }}>
           <div className="form-grid">
             <div className="grid" style={{ gap: 6 }}>
-              <label>׳¡׳•׳’</label>
+              <label>סוג</label>
               <select
                 className="input"
                 value={kind}
@@ -572,13 +572,13 @@ export default function AddEntryPage() {
                 }}
                 disabled={saving}
               >
-                <option value="expense_variable">׳”׳•׳¦׳׳” (׳׳©׳×׳ ׳”)</option>
-                <option value="income">׳”׳›׳ ׳¡׳”</option>
+                <option value="expense_variable">הוצאה (משתנה)</option>
+                <option value="income">הכנסה</option>
               </select>
             </div>
 
             <div className="grid" style={{ gap: 6 }}>
-              <label>׳×׳׳¨׳™׳</label>
+              <label>תאריך</label>
               <input
                 className="input"
                 type="date"
@@ -594,7 +594,7 @@ export default function AddEntryPage() {
 
           <div className="form-grid">
             <div className="grid" style={{ gap: 6 }}>
-              <label>׳§׳˜׳’׳•׳¨׳™׳”</label>
+              <label>קטגוריה</label>
               <select
                 className="input"
                 value={category}
@@ -604,7 +604,7 @@ export default function AddEntryPage() {
                 }}
                 disabled={saving}
               >
-                <option value="">׳‘׳—׳¨ ׳§׳˜׳’׳•׳¨׳™׳”</option>
+                <option value="">בחר קטגוריה</option>
                 {categories.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -614,7 +614,7 @@ export default function AddEntryPage() {
             </div>
 
             <div className="grid" style={{ gap: 6 }}>
-              <label>׳¡׳›׳•׳</label>
+              <label>סכום</label>
               <input
                 className="input"
                 inputMode="decimal"
@@ -623,7 +623,7 @@ export default function AddEntryPage() {
                   setAmount(e.target.value);
                   resetMessages();
                 }}
-                placeholder="׳׳“׳•׳’׳׳”: 120"
+                placeholder="לדוגמה: 120"
                 disabled={saving}
               />
             </div>
@@ -632,7 +632,7 @@ export default function AddEntryPage() {
           {showPayments ? (
             <div className="form-grid">
               <div className="grid" style={{ gap: 6 }}>
-                <label>׳׳¡׳₪׳¨ ׳×׳©׳׳•׳׳™׳</label>
+                <label>מספר תשלומים</label>
                 <input
                   className="input"
                   type="number"
@@ -649,7 +649,7 @@ export default function AddEntryPage() {
               </div>
 
               <div className="grid" style={{ gap: 6 }}>
-                <label>׳™׳•׳ ׳—׳™׳•׳‘</label>
+                <label>יום חיוב</label>
                 <input
                   className="input"
                   type="number"
@@ -669,12 +669,12 @@ export default function AddEntryPage() {
 
           {showPayments ? (
             <div className="muted" style={{ fontSize: 12 }}>
-              ׳×׳©׳׳•׳ ׳¨׳׳©׳•׳ ׳׳₪׳™ ׳×׳׳¨׳™׳ ׳”׳¢׳¡׳§׳”. ׳×׳©׳׳•׳׳™׳ 2 ׳•׳׳¢׳׳” ׳׳₪׳™ ׳™׳•׳ ׳”׳—׳™׳•׳‘ ׳‘׳—׳•׳“׳©׳™׳ ׳”׳¢׳•׳§׳‘׳™׳. ׳×׳’ ׳´׳×׳©׳׳•׳ X/Y׳´ ׳׳•׳¦׳’ ׳‘׳׳¡׳ ׳´׳×׳ ׳•׳¢׳•׳×׳´ ׳‘׳׳‘׳“.
+              תשלום ראשון לפי תאריך העסקה. תשלומים 2 ומעלה לפי יום החיוב בחודשים העוקבים. תג ״תשלום X/Y״ מוצג במסך ״תנועות״ בלבד.
             </div>
           ) : null}
 
           <div className="grid" style={{ gap: 6 }}>
-            <label>׳×׳™׳׳•׳¨</label>
+            <label>תיאור</label>
             <input
               className="input"
               value={description}
@@ -682,7 +682,7 @@ export default function AddEntryPage() {
                 setDescription(e.target.value);
                 resetMessages();
               }}
-              placeholder="׳׳“׳•׳’׳׳”: ׳§׳ ׳™׳•׳× ׳‘׳¡׳•׳₪׳¨"
+              placeholder="לדוגמה: קניות בסופר"
               disabled={saving}
             />
           </div>
@@ -692,7 +692,7 @@ export default function AddEntryPage() {
 
           <div className="row" style={{ justifyContent: "space-between" }}>
             <button className="btn" type="submit" disabled={saving}>
-              {saving ? "׳©׳•׳׳¨..." : "׳©׳׳•׳¨"}
+              {saving ? "שומר..." : "שמור"}
             </button>
 
             <button
@@ -710,7 +710,7 @@ export default function AddEntryPage() {
                 resetMessages();
               }}
             >
-              ׳ ׳§׳”
+              נקה
             </button>
           </div>
         </form>

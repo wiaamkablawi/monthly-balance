@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import AppLayout from "../app/layout/AppLayout";
 import { currentMonthKey, monthKeyFromISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
@@ -76,7 +76,7 @@ export default function TransactionsPage() {
         setState("ready");
       } catch (e: any) {
         if (!cancelled) {
-          setErr(e.message || "׳©׳’׳™׳׳” ׳‘׳˜׳¢׳™׳ ׳”");
+          setErr(e.message || "שגיאה בטעינה");
           setState("error");
         }
       }
@@ -119,13 +119,13 @@ export default function TransactionsPage() {
   }
 
   async function onDelete(it: EntryDoc) {
-    if (!window.confirm("׳׳׳—׳•׳§ ׳׳× ׳”׳×׳ ׳•׳¢׳”?")) return;
+    if (!window.confirm("למחוק את התנועה?")) return;
     await deleteDoc(doc(db, "records", it.id));
     setItems((prev) => prev.filter((x) => x.id !== it.id));
   }
 
   /* =========================
-     Swipe logic ג€“ FIXED
+     Swipe logic – FIXED
   ========================= */
  function onPointerDown(e: React.PointerEvent, id: string) {
   const row = (e.currentTarget as HTMLElement).closest(
@@ -136,9 +136,9 @@ export default function TransactionsPage() {
   const contentEl = row.querySelector(".swipe-content");
   if (!(contentEl instanceof HTMLElement)) return;
 
-  const content = contentEl; // ׳׳¢׳›׳©׳™׳• non-null ׳•-type-safe
+  const content = contentEl; // מעכשיו non-null ו-type-safe
 
-  // ׳¡׳’׳™׳¨׳× swipe ׳₪׳×׳•׳— ׳§׳•׳“׳
+  // סגירת swipe פתוח קודם
   if (openSwipeId.current && openSwipeId.current !== id) {
     const prev = document.querySelector(
       `[data-swipe-id="${openSwipeId.current}"] .swipe-content`
@@ -192,9 +192,9 @@ export default function TransactionsPage() {
      Render
   ========================= */
   return (
-    <AppLayout title="׳×׳ ׳•׳¢׳•׳×">
+    <AppLayout title="תנועות">
       <div className="card">
-        <label>׳—׳•׳“׳©</label>
+        <label>חודש</label>
         <select
           className="input"
           value={monthKey}
@@ -239,13 +239,13 @@ export default function TransactionsPage() {
                     className="swipe-btn edit"
                     onClick={() => startEdit(it)}
                   >
-                    ׳¢׳¨׳•׳
+                    ערוך
                   </button>
                   <button
                     className="swipe-btn delete"
                     onClick={() => onDelete(it)}
                   >
-                    ׳׳—׳§
+                    מחק
                   </button>
                 </div>
 
@@ -254,11 +254,11 @@ export default function TransactionsPage() {
                   onPointerDown={(e) => onPointerDown(e, it.id)}
                 >
                   <div className="txn-title">
-                    {formatILS(it.amount)} ג€“{" "}
-                    {it.category || "׳׳׳ ׳§׳˜׳’׳•׳¨׳™׳”"}
+                    {formatILS(it.amount)} –{" "}
+                    {it.category || "ללא קטגוריה"}
                   </div>
                   <div className="txn-sub">
-                    {it.description || "׳׳׳ ׳×׳™׳׳•׳¨"}
+                    {it.description || "ללא תיאור"}
                   </div>
                   <div className="txn-date">
                     {String(it.date || "")}
@@ -297,13 +297,13 @@ export default function TransactionsPage() {
                         className="btn"
                         onClick={() => saveEdit(it)}
                       >
-                        ׳©׳׳•׳¨
+                        שמור
                       </button>
                       <button
                         className="btn secondary"
                         onClick={cancelEdit}
                       >
-                        ׳‘׳˜׳
+                        בטל
                       </button>
                     </div>
                   )}

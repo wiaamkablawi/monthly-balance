@@ -1,4 +1,4 @@
-﻿import { addDoc, collection } from "firebase/firestore";
+import { addDoc, collection } from "firebase/firestore";
 import { auth } from "./firebase";
 import { db } from "./firebaseDb";
 import { householdIdFromEmail, userKeyFromEmail } from "./authService";

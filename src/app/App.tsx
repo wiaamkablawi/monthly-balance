@@ -18,7 +18,7 @@ function LoadingScreen() {
   return (
     <div className="container" style={{ paddingTop: 32 }}>
       <div className="card">
-        <div className="muted">θεςο...</div>
+        <div className="muted">ΧΧ•ΧΆΧ...</div>
       </div>
     </div>
   );

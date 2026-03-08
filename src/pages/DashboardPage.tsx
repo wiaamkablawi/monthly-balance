@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { householdIdFromEmail, userKeyFromEmail } from "../services/authService";
 import {
   DASHBOARD_FIXED_EXPENSE_CATEGORIES,
@@ -48,8 +48,8 @@ function toMillis(v: any): number {
 type LoadState = "idle" | "loading" | "ready" | "error";
 
 function typeLabel(e: EntryDoc): string {
-  if (e.type === "income") return "׳”׳›׳ ׳¡׳”";
-  return "׳”׳•׳¦׳׳”";
+  if (e.type === "income") return "הכנסה";
+  return "הוצאה";
 }
 
 function isFixedExpense(e: any): boolean {
@@ -115,8 +115,8 @@ function toISODateString(v: any, fallbackISO: string): string {
 
 function detectTypeFromRaw(typeRaw: string, amount: number): EntryDoc["type"] {
   const t = typeRaw.trim().toLowerCase();
-  if (t.includes("income") || t.includes("׳”׳›׳ ׳¡׳”") || t.includes("credit") || t.includes("׳–׳™׳›׳•׳™")) return "income";
-  if (t.includes("expense") || t.includes("׳”׳•׳¦׳׳”") || t.includes("debit") || t.includes("׳—׳™׳•׳‘")) return "expense";
+  if (t.includes("income") || t.includes("הכנסה") || t.includes("credit") || t.includes("זיכוי")) return "income";
+  if (t.includes("expense") || t.includes("הוצאה") || t.includes("debit") || t.includes("חיוב")) return "expense";
   return amount >= 0 ? "income" : "expense";
 }
 
@@ -140,22 +140,22 @@ async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedI
 
     return rows
       .map((row, i): ParsedImportRow | null => {
-        const amountRaw = row.amount || row.Amount || row.sum || row.Total || row["׳¡׳›׳•׳"] || row["׳—׳™׳•׳‘"] || row["׳–׳™׳›׳•׳™"];
+        const amountRaw = row.amount || row.Amount || row.sum || row.Total || row["סכום"] || row["חיוב"] || row["זיכוי"];
         const numericAmount = Number(String(amountRaw || "").replace(/,/g, "").trim());
         if (!Number.isFinite(numericAmount) || numericAmount === 0) return null;
 
-        const dateRaw = row.date || row.Date || row["׳×׳׳¨׳™׳"];
-        const descRaw = row.description || row.Description || row.details || row["׳×׳™׳׳•׳¨"] || "";
-        const categoryRaw = row.category || row.Category || row["׳§׳˜׳’׳•׳¨׳™׳”"] || "׳׳—׳¨";
-        const typeRaw = row.type || row.Type || row["׳¡׳•׳’"] || "";
+        const dateRaw = row.date || row.Date || row["תאריך"];
+        const descRaw = row.description || row.Description || row.details || row["תיאור"] || "";
+        const categoryRaw = row.category || row.Category || row["קטגוריה"] || "אחר";
+        const typeRaw = row.type || row.Type || row["סוג"] || "";
         const type = detectTypeFromRaw(String(typeRaw || ""), numericAmount);
 
         return {
           id: `${file.name}-${i}-${Math.random().toString(16).slice(2)}`,
           type,
           date: toISODateString(dateRaw, fallbackISO),
-          category: String(categoryRaw || "׳׳—׳¨").trim(),
-          description: String(descRaw || "").trim() || "׳™׳™׳‘׳•׳ ׳§׳•׳‘׳¥",
+          category: String(categoryRaw || "אחר").trim(),
+          description: String(descRaw || "").trim() || "ייבוא קובץ",
           amount: String(Math.abs(numericAmount)),
           selected: true,
         };
@@ -169,8 +169,8 @@ async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedI
         id: `${file.name}-manual-1`,
         type: "expense",
         date: fallbackISO,
-        category: "׳׳—׳¨",
-        description: `׳˜׳™׳•׳˜׳” ׳׳§׳•׳‘׳¥ ${file.name} (׳ ׳“׳¨׳© ׳“׳™׳•׳§ ׳™׳“׳ ׳™)`,
+        category: "אחר",
+        description: `טיוטה מקובץ ${file.name} (נדרש דיוק ידני)`,
         amount: "0",
         selected: true,
       },
@@ -210,17 +210,17 @@ function ImportEntriesModal(props: {
     try {
       const parsed = await parseFileToRows(file, defaultDateISO);
       if (!parsed.length) {
-        setErr("׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳–׳”׳•׳× ׳©׳•׳¨׳•׳× ׳‘׳§׳•׳‘׳¥. ׳׳₪׳©׳¨ ׳׳¢׳¨׳•׳ ׳™׳“׳ ׳™׳× ׳׳—׳¨׳™ ׳‘׳—׳™׳¨׳× ׳§׳•׳‘׳¥ ׳ ׳×׳׳.");
+        setErr("לא הצלחנו לזהות שורות בקובץ. אפשר לערוך ידנית אחרי בחירת קובץ נתמך.");
         return;
       }
 
       if (file.name.match(/\.(pdf|png|jpg|jpeg|webp)$/i)) {
-        setNote("׳‘׳§׳•׳‘׳¦׳™ PDF/׳×׳׳•׳ ׳” ׳ ׳₪׳×׳—׳× ׳˜׳™׳•׳˜׳” ׳׳¢׳¨׳™׳›׳” ׳™׳“׳ ׳™׳× ׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨.");
+        setNote("בקובצי PDF/תמונה נפתחת טיוטה לעריכה ידנית לפני אישור.");
       }
 
       setRows(parsed);
     } catch (e: any) {
-      setErr(e?.message || "׳©׳’׳™׳׳” ׳‘׳ ׳™׳×׳•׳— ׳”׳§׳•׳‘׳¥.");
+      setErr(e?.message || "שגיאה בניתוח הקובץ.");
     } finally {
       setLoading(false);
     }
@@ -402,9 +402,9 @@ function ImportEntriesModal(props: {
     >
       <div style={{ width: "min(1080px, 96vw)", maxHeight: "85vh", overflow: "auto", borderRadius: 18, border: "1px solid rgba(15,23,42,0.10)", background: "#fff", boxShadow: "0 24px 70px rgba(2,6,23,0.20)", padding: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <div style={{ fontWeight: 900 }}>׳”׳•׳¡׳₪׳× ׳§׳•׳‘׳¥ ׳•׳ ׳™׳×׳•׳— ׳×׳ ׳•׳¢׳•׳×</div>
+          <div style={{ fontWeight: 900 }}>הוספת קובץ וניתוח תנועות</div>
           <button className="btn secondary" type="button" onClick={onClose} disabled={saving || loading}>
-            ׳¡׳’׳•׳¨
+            סגור
           </button>
         </div>
         <div style={{ height: 12 }} />
@@ -418,7 +418,7 @@ function ImportEntriesModal(props: {
         />
 
         <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-          ׳”׳׳¢׳¨׳›׳× ׳×׳ ׳×׳— ׳׳× ׳”׳§׳•׳‘׳¥ ׳•׳×׳¦׳™׳¢ ׳₪׳¢׳•׳׳•׳×. ׳׳₪׳©׳¨ ׳׳׳©׳¨ ׳”׳›׳, ׳׳“׳—׳•׳× ׳”׳›׳ ׳׳• ׳׳¢׳¨׳•׳ ׳›׳ ׳©׳•׳¨׳” ׳‘׳ ׳₪׳¨׳“.
+          המערכת תנתח את הקובץ ותציע פעולות. אפשר לאשר הכל, לדחות הכל או לערוך כל שורה בנפרד.
         </div>
 
         {note ? <div className="muted" style={{ marginTop: 8 }}>{note}</div> : null}
@@ -428,10 +428,10 @@ function ImportEntriesModal(props: {
           <>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
               <button className="btn secondary" type="button" onClick={() => selectAll(true)} disabled={saving || loading}>
-                ׳׳©׳¨ ׳”׳›׳
+                אשר הכל
               </button>
               <button className="btn secondary" type="button" onClick={() => selectAll(false)} disabled={saving || loading}>
-                ׳“׳—׳” ׳”׳›׳
+                דחה הכל
               </button>
             </div>
 
@@ -440,18 +440,18 @@ function ImportEntriesModal(props: {
                 <div key={r.id} className="card" style={{ display: "grid", gap: 8 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <input type="checkbox" checked={r.selected} onChange={(e) => updateRow(r.id, { selected: e.target.checked })} />
-                    ׳׳׳©׳¨ ׳©׳•׳¨׳”
+                    לאשר שורה
                   </label>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                     <select className="input" value={r.type} onChange={(e) => updateRow(r.id, { type: e.target.value as EntryDoc["type"] })}>
-                      <option value="expense">׳”׳•׳¦׳׳”</option>
-                      <option value="income">׳”׳›׳ ׳¡׳”</option>
+                      <option value="expense">הוצאה</option>
+                      <option value="income">הכנסה</option>
                     </select>
                     <input className="input" type="date" value={r.date} onChange={(e) => updateRow(r.id, { date: e.target.value })} />
-                    <input className="input" value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} placeholder="׳¡׳›׳•׳" />
-                    <input className="input" value={r.category} onChange={(e) => updateRow(r.id, { category: e.target.value })} placeholder="׳§׳˜׳’׳•׳¨׳™׳”" />
-                    <input className="input" style={{ gridColumn: "1 / -1" }} value={r.description} onChange={(e) => updateRow(r.id, { description: e.target.value })} placeholder="׳×׳™׳׳•׳¨" />
+                    <input className="input" value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} placeholder="סכום" />
+                    <input className="input" value={r.category} onChange={(e) => updateRow(r.id, { category: e.target.value })} placeholder="קטגוריה" />
+                    <input className="input" style={{ gridColumn: "1 / -1" }} value={r.description} onChange={(e) => updateRow(r.id, { description: e.target.value })} placeholder="תיאור" />
                   </div>
                 </div>
               ))}
@@ -459,7 +459,7 @@ function ImportEntriesModal(props: {
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
               <button className="btn" type="button" onClick={saveSelected} disabled={saving || loading}>
-                {saving ? "׳©׳•׳׳¨..." : "׳©׳׳•׳¨ ׳©׳•׳¨׳•׳× ׳׳׳•׳©׳¨׳•׳×"}
+                {saving ? "שומר..." : "שמור שורות מאושרות"}
               </button>
             </div>
           </>
@@ -505,7 +505,7 @@ function AddEntryModal(props: {
     return DASHBOARD_VARIABLE_EXPENSE_CATEGORIES;
   }, [isIncome, kind]);
 
-  // ׳׳™׳₪׳•׳¡ ׳™׳¡׳•׳“׳™ ׳‘׳›׳ ׳₪׳×׳™׳—׳” ׳©׳ ׳”׳׳•׳“׳׳
+  // איפוס יסודי בכל פתיחה של המודאל
   useEffect(() => {
     if (!open) return;
 
@@ -562,21 +562,21 @@ function AddEntryModal(props: {
 
     const amountNumber = parseAmountInput(amount);
     if (!amountNumber) {
-      setErr("׳ ׳ ׳׳”׳–׳™׳ ׳¡׳›׳•׳ ׳×׳§׳™׳.");
+      setErr("נא להזין סכום תקין.");
       return;
     }
     if (!category) {
-      setErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳§׳˜׳’׳•׳¨׳™׳”.");
+      setErr("נא לבחור קטגוריה.");
       return;
     }
     if (!date) {
-      setErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳×׳׳¨׳™׳.");
+      setErr("נא לבחור תאריך.");
       return;
     }
 
     const user = auth.currentUser;
     if (!user?.email) {
-      setErr("׳׳©׳×׳׳© ׳׳ ׳׳—׳•׳‘׳¨.");
+      setErr("משתמש לא מחובר.");
       return;
     }
 
@@ -667,7 +667,7 @@ function AddEntryModal(props: {
       onSaved();
       onClose();
     } catch (ex: any) {
-      setErr(ex?.message || "׳©׳’׳™׳׳” ׳‘׳©׳׳™׳¨׳”.");
+      setErr(ex?.message || "שגיאה בשמירה.");
     } finally {
       setSaving(false);
     }
@@ -702,9 +702,9 @@ function AddEntryModal(props: {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ fontWeight: 900 }}>׳”׳•׳¡׳₪׳× ׳×׳ ׳•׳¢׳”</div>
+          <div style={{ fontWeight: 900 }}>הוספת תנועה</div>
           <button className="btn secondary" type="button" onClick={onClose} disabled={saving}>
-            ׳¡׳’׳•׳¨
+            סגור
           </button>
         </div>
 
@@ -712,12 +712,12 @@ function AddEntryModal(props: {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
-            <label>׳×׳׳¨׳™׳</label>
+            <label>תאריך</label>
             <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} />
           </div>
 
           <div>
-            <label>׳¡׳•׳’</label>
+            <label>סוג</label>
             <select
               className="input"
               value={kind}
@@ -733,21 +733,21 @@ function AddEntryModal(props: {
               }}
               disabled={saving}
             >
-              <option value="expense_variable">׳”׳•׳¦׳׳” ׳׳©׳×׳ ׳”</option>
-              <option value="expense_fixed">׳”׳•׳¦׳׳” ׳§׳‘׳•׳¢׳”</option>
-              <option value="income">׳”׳›׳ ׳¡׳”</option>
+              <option value="expense_variable">הוצאה משתנה</option>
+              <option value="expense_fixed">הוצאה קבועה</option>
+              <option value="income">הכנסה</option>
             </select>
           </div>
 
           <div>
-            <label>׳¡׳›׳•׳</label>
+            <label>סכום</label>
             <input className="input" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
           </div>
 
           <div>
-            <label>׳§׳˜׳’׳•׳¨׳™׳”</label>
+            <label>קטגוריה</label>
             <select className="input" value={category} onChange={(e) => setCategory(e.target.value)} disabled={saving}>
-              <option value="">׳‘׳—׳¨</option>
+              <option value="">בחר</option>
               {categoryOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -757,14 +757,14 @@ function AddEntryModal(props: {
           </div>
 
           <div style={{ gridColumn: "1 / -1" }}>
-            <label>׳×׳™׳׳•׳¨</label>
+            <label>תיאור</label>
             <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} />
           </div>
 
           {isExpense && kind === "expense_variable" ? (
             <>
               <div>
-                <label>׳׳¡׳₪׳¨ ׳×׳©׳׳•׳׳™׳</label>
+                <label>מספר תשלומים</label>
                 <input
                   className="input"
                   type="number"
@@ -776,7 +776,7 @@ function AddEntryModal(props: {
                 />
               </div>
               <div>
-                <label>׳™׳•׳ ׳—׳™׳•׳‘ ׳׳×׳©׳׳•׳׳™׳ ׳”׳‘׳׳™׳</label>
+                <label>יום חיוב לתשלומים הבאים</label>
                 <input
                   className="input"
                   type="number"
@@ -792,7 +792,7 @@ function AddEntryModal(props: {
 
           {kind === "expense_fixed" ? (
             <div>
-              <label>׳™׳•׳ ׳—׳™׳•׳‘ ׳—׳•׳“׳©׳™</label>
+              <label>יום חיוב חודשי</label>
               <input
                 className="input"
                 type="number"
@@ -814,10 +814,10 @@ function AddEntryModal(props: {
 
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 16 }}>
           <button className="btn secondary" type="button" onClick={onClose} disabled={saving}>
-            ׳‘׳™׳˜׳•׳
+            ביטול
           </button>
           <button className="btn" type="button" onClick={onSave} disabled={saving}>
-            {saving ? "׳©׳•׳׳¨..." : "׳©׳׳•׳¨"}
+            {saving ? "שומר..." : "שמור"}
           </button>
         </div>
       </div>
@@ -996,7 +996,7 @@ export default function DashboardPage() {
         setState("ready");
       } catch (e: any) {
         if (cancelled) return;
-        setErr(e?.message || "׳©׳’׳™׳׳” ׳‘׳˜׳¢׳™׳ ׳× ׳ ׳×׳•׳ ׳™׳.");
+        setErr(e?.message || "שגיאה בטעינת נתונים.");
         setState("error");
       }
     }
@@ -1007,7 +1007,7 @@ export default function DashboardPage() {
     };
   }, [monthKey, reloadKey]);
 
-  // ׳׳’׳׳× ׳”׳•׳¦׳׳•׳× ׳׳©׳×׳ ׳•׳× ׳-6 ׳—׳•׳“׳©׳™׳ ׳׳—׳¨׳•׳ ׳™׳
+  // מגמת הוצאות משתנות ל-6 חודשים אחרונים
   useEffect(() => {
     let cancelled = false;
 
@@ -1021,7 +1021,7 @@ export default function DashboardPage() {
           last6Months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
         }
 
-        // ׳׳™׳—׳•׳“ ׳×׳•׳¦׳׳•׳× ׳׳©׳×׳™ ׳©׳׳™׳׳×׳•׳×: month ׳•׳’׳ monthKey (׳›׳“׳™ ׳׳×׳₪׳•׳¡ ׳¨׳©׳•׳׳•׳× ׳™׳©׳ ׳•׳×)
+        // איחוד תוצאות משתי שאילתות: month וגם monthKey (כדי לתפוס רשומות ישנות)
         const user = auth.currentUser;
         if (!user?.email) {
           setVariableExpensesTrend([]);
@@ -1094,7 +1094,7 @@ export default function DashboardPage() {
 
     items.forEach((it) => {
       if (it.type === "expense" && !isFixedExpense(it)) {
-        const cat = it.category || "׳׳׳ ׳§׳˜׳’׳•׳¨׳™׳”";
+        const cat = it.category || "ללא קטגוריה";
         const prev = m.get(cat) || 0;
         m.set(cat, prev + Number(it.amount || 0));
       }
@@ -1115,7 +1115,7 @@ export default function DashboardPage() {
       await deleteDoc(doc(db, "records", id));
       setItems((prev) => prev.filter((x) => x.id !== id));
     } catch (e: any) {
-      setErr(e?.message || "׳©׳’׳™׳׳” ׳‘׳׳—׳™׳§׳”.");
+      setErr(e?.message || "שגיאה במחיקה.");
     } finally {
       setDeletingId("");
     }
@@ -1141,15 +1141,15 @@ export default function DashboardPage() {
 
     const n = parseAmountInput(editAmount);
     if (!n) {
-      setEditErr("׳ ׳ ׳׳”׳–׳™׳ ׳¡׳›׳•׳ ׳×׳§׳™׳.");
+      setEditErr("נא להזין סכום תקין.");
       return;
     }
     if (!editCategory) {
-      setEditErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳§׳˜׳’׳•׳¨׳™׳”.");
+      setEditErr("נא לבחור קטגוריה.");
       return;
     }
     if (!editDate) {
-      setEditErr("׳ ׳ ׳׳‘׳—׳•׳¨ ׳×׳׳¨׳™׳.");
+      setEditErr("נא לבחור תאריך.");
       return;
     }
 
@@ -1185,14 +1185,14 @@ export default function DashboardPage() {
 
       cancelEdit();
     } catch (e: any) {
-      setEditErr(e?.message || "׳©׳’׳™׳׳” ׳‘׳©׳׳™׳¨׳”.");
+      setEditErr(e?.message || "שגיאה בשמירה.");
     } finally {
       setSavingEditId("");
     }
   }
 
   return (
-    <AppLayout title="׳“׳©׳‘׳•׳¨׳“">
+    <AppLayout title="דשבורד">
       <button
         className="btn"
         type="button"
@@ -1207,14 +1207,14 @@ export default function DashboardPage() {
           background: "linear-gradient(135deg, rgba(168,85,247,0.98), rgba(37,99,235,0.95))",
         }}
       >
-        נ“ ׳”׳•׳¡׳₪׳× ׳§׳•׳‘׳¥
+        📁 הוספת קובץ
       </button>
 
       <div className="container">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div className="row" style={{ gap: 10, alignItems: "center" }}>
             <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
-              ׳”׳•׳¡׳₪׳× ׳×׳ ׳•׳¢׳”
+              הוספת תנועה
             </button>
             <button
               className="btn"
@@ -1222,13 +1222,13 @@ export default function DashboardPage() {
               disabled={state === "loading"}
               style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.95), rgba(37,99,235,0.92))" }}
             >
-              נ“ ׳”׳•׳¡׳₪׳× ׳§׳•׳‘׳¥
+              📁 הוספת קובץ
             </button>
           </div>
 
           <div className="row" style={{ gap: 10, alignItems: "center" }}>
             <div className="muted" style={{ fontSize: 12 }}>
-              ׳—׳•׳“׳©
+              חודש
             </div>
             <select className="input" style={{ width: 160 }} value={monthKey} onChange={(e) => setMonthKey(e.target.value)}>
               {months.map((m) => (
@@ -1241,7 +1241,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-          ׳×׳¦׳•׳’׳” ׳—׳•׳“׳©׳™׳×. ׳”׳›׳¨׳˜׳™׳¡׳™׳•׳× ׳•׳”׳’׳¨׳£ ׳׳×׳¢׳“׳›׳ ׳™׳ ׳׳•׳˜׳•׳׳˜׳™׳× ׳׳₪׳™ ׳”׳—׳•׳“׳©.
+          תצוגה חודשית. הכרטיסיות והגרף מתעדכנים אוטומטית לפי החודש.
         </div>
 
         <div
@@ -1255,7 +1255,7 @@ export default function DashboardPage() {
           }}
         >
           <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
-            ג• ׳”׳•׳¡׳₪׳× ׳×׳ ׳•׳¢׳” ׳™׳“׳ ׳™׳×
+            ➕ הוספת תנועה ידנית
           </button>
           <button
             className="btn"
@@ -1263,7 +1263,7 @@ export default function DashboardPage() {
             disabled={state === "loading"}
             style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.95), rgba(37,99,235,0.92))" }}
           >
-            נ“ ׳”׳•׳¡׳₪׳× ׳§׳•׳‘׳¥ ׳•׳ ׳™׳×׳•׳—׳•
+            📁 הוספת קובץ וניתוחו
           </button>
         </div>
 
@@ -1283,8 +1283,8 @@ export default function DashboardPage() {
               }}
             >
               <div className="kpi-top">
-                <div className="kpi-title">׳™׳×׳¨׳” ׳—׳•׳“׳©׳™׳×</div>
-                <div className="kpi-icon">ג“</div>
+                <div className="kpi-title">יתרה חודשית</div>
+                <div className="kpi-icon">✓</div>
               </div>
 
               <div
@@ -1301,36 +1301,36 @@ export default function DashboardPage() {
                 {formatILS(totals.balance)}
               </div>
 
-              <div className="kpi-sub muted">׳”׳›׳ ׳¡׳•׳× ׳₪׳—׳•׳× ׳”׳•׳¦׳׳•׳×</div>
+              <div className="kpi-sub muted">הכנסות פחות הוצאות</div>
             </div>
           </div>
 
           <div className="kpi-grid">
             <div className="kpi-card kpi-variable">
               <div className="kpi-top">
-                <div className="kpi-title">׳”׳•׳¦׳׳•׳× ׳׳©׳×׳ ׳•׳×</div>
-                <div className="kpi-icon">ג‰ˆ</div>
+                <div className="kpi-title">הוצאות משתנות</div>
+                <div className="kpi-icon">≈</div>
               </div>
               <div className="kpi-value">{formatILS(totals.variable)}</div>
-              <div className="kpi-sub muted">׳§׳ ׳™׳•׳×, ׳“׳׳§, ׳‘׳™׳׳•׳™׳™׳</div>
+              <div className="kpi-sub muted">קניות, דלק, בילויים</div>
             </div>
 
             <div className="kpi-card kpi-fixed">
               <div className="kpi-top">
-                <div className="kpi-title">׳”׳•׳¦׳׳•׳× ׳§׳‘׳•׳¢׳•׳×</div>
-                <div className="kpi-icon">ג—‹</div>
+                <div className="kpi-title">הוצאות קבועות</div>
+                <div className="kpi-icon">○</div>
               </div>
               <div className="kpi-value">{formatILS(totals.fixed)}</div>
-              <div className="kpi-sub muted">׳×׳©׳׳•׳׳™׳ ׳—׳•׳–׳¨׳™׳ ׳•׳§׳‘׳•׳¢׳™׳</div>
+              <div className="kpi-sub muted">תשלומים חוזרים וקבועים</div>
             </div>
 
             <div className="kpi-card kpi-income">
               <div className="kpi-top">
-                <div className="kpi-title">׳”׳›׳ ׳¡׳•׳×</div>
+                <div className="kpi-title">הכנסות</div>
                 <div className="kpi-icon">+</div>
               </div>
               <div className="kpi-value">{formatILS(totals.income)}</div>
-              <div className="kpi-sub muted">׳¡׳ ׳›׳ ׳”׳”׳›׳ ׳¡׳•׳× ׳‘׳—׳•׳“׳©</div>
+              <div className="kpi-sub muted">סך כל ההכנסות בחודש</div>
             </div>
           </div>
         </div>
@@ -1352,10 +1352,10 @@ export default function DashboardPage() {
               boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
             }}
           >
-            <h3 style={{ marginBottom: 12 }}>׳”׳•׳¦׳׳•׳× ׳׳©׳×׳ ׳•׳× ׳׳₪׳™ ׳§׳˜׳’׳•׳¨׳™׳•׳×</h3>
+            <h3 style={{ marginBottom: 12 }}>הוצאות משתנות לפי קטגוריות</h3>
 
             {variableExpensesByCategory.length === 0 ? (
-              <div className="muted">׳׳™׳ ׳ ׳×׳•׳ ׳™׳ ׳׳”׳¦׳’׳”</div>
+              <div className="muted">אין נתונים להצגה</div>
             ) : (
               <div style={{ filter: "drop-shadow(0px 6px 10px rgba(0,0,0,0.25))" }}>
                 <div style={{ filter: "drop-shadow(0 18px 28px rgba(0,0,0,0.28))" }}>
@@ -1418,10 +1418,10 @@ export default function DashboardPage() {
               boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
             }}
           >
-            <h3 style={{ marginBottom: 12 }}>׳”׳•׳¦׳׳•׳× ׳׳©׳×׳ ׳•׳× - ׳”׳©׳•׳•׳׳” ׳—׳•׳“׳©׳™׳×</h3>
+            <h3 style={{ marginBottom: 12 }}>הוצאות משתנות - השוואה חודשית</h3>
 
             {variableExpensesTrend.length === 0 ? (
-              <div className="muted">׳׳™׳ ׳ ׳×׳•׳ ׳™׳ ׳׳”׳¦׳’׳”</div>
+              <div className="muted">אין נתונים להצגה</div>
             ) : (
               <Bar
                 data={{
@@ -1479,15 +1479,15 @@ export default function DashboardPage() {
           }}
         >
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontWeight: 900 }}>׳×׳ ׳•׳¢׳•׳×</div>
+            <div style={{ fontWeight: 900 }}>תנועות</div>
             {err ? <div className="error">{err}</div> : null}
           </div>
 
           <div style={{ height: 10 }} />
 
-          {state === "loading" ? <div className="muted">׳˜׳•׳¢׳...</div> : null}
+          {state === "loading" ? <div className="muted">טוען...</div> : null}
 
-          {state !== "loading" && items.length === 0 ? <div className="muted">׳׳™׳ ׳ ׳×׳•׳ ׳™׳ ׳׳—׳•׳“׳© ׳”׳–׳”.</div> : null}
+          {state !== "loading" && items.length === 0 ? <div className="muted">אין נתונים לחודש הזה.</div> : null}
 
           <div style={{ display: "grid", gap: 10 }}>
             {items.map((it) => {
@@ -1528,22 +1528,22 @@ export default function DashboardPage() {
                                   : "rgba(239,68,68,0.95)",
                             }}
                           >
-                            {it.category || "׳׳׳ ׳§׳˜׳’׳•׳¨׳™׳”"} - {formatILS(Number(it.amount || 0))}
+                            {it.category || "ללא קטגוריה"} - {formatILS(Number(it.amount || 0))}
                           </div>
 
                           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
                             {typeLabel(it)}
-                            {isFixedExpense(it) ? " ׳§׳‘׳•׳¢׳”" : it.type === "expense" ? " ׳׳©׳×׳ ׳”" : ""}
+                            {isFixedExpense(it) ? " קבועה" : it.type === "expense" ? " משתנה" : ""}
                             {it.description ? ` ֲ· ${it.description}` : ""}
                           </div>
                         </div>
 
                         <div className="row" style={{ gap: 6 }}>
                           <button className="btn secondary" onClick={() => startEdit(it)}>
-                            ׳¢׳¨׳•׳
+                            ערוך
                           </button>
                           <button className="btn danger" onClick={() => onDelete(it.id || "")} disabled={deletingId === it.id}>
-                            {deletingId === it.id ? "׳׳•׳—׳§..." : "׳׳—׳™׳§׳”"}
+                            {deletingId === it.id ? "מוחק..." : "מחיקה"}
                           </button>
                         </div>
                       </div>
@@ -1556,22 +1556,22 @@ export default function DashboardPage() {
                     <>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                         <div>
-                          <label>׳×׳׳¨׳™׳</label>
+                          <label>תאריך</label>
                           <input className="input" type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
                         </div>
 
                         <div>
-                          <label>׳§׳˜׳’׳•׳¨׳™׳”</label>
+                          <label>קטגוריה</label>
                           <input className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)} />
                         </div>
 
                         <div>
-                          <label>׳¡׳›׳•׳</label>
+                          <label>סכום</label>
                           <input className="input" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
                         </div>
 
                         <div>
-                          <label>׳×׳™׳׳•׳¨</label>
+                          <label>תיאור</label>
                           <input className="input" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
                         </div>
                       </div>
@@ -1584,10 +1584,10 @@ export default function DashboardPage() {
 
                       <div className="row" style={{ gap: 8, marginTop: 10 }}>
                         <button className="btn" onClick={() => saveEdit(it)} disabled={savingEditId === it.id}>
-                          {savingEditId === it.id ? "׳©׳•׳׳¨..." : "׳©׳׳•׳¨"}
+                          {savingEditId === it.id ? "שומר..." : "שמור"}
                         </button>
                         <button className="btn secondary" onClick={cancelEdit}>
-                          ׳‘׳™׳˜׳•׳
+                          ביטול
                         </button>
                       </div>
                     </>
@@ -1598,7 +1598,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-            ׳”׳¢׳¨׳”: ׳´׳”׳•׳¦׳׳•׳× ׳§׳‘׳•׳¢׳•׳×׳´ ׳׳—׳•׳©׳‘׳•׳× ׳¨׳§ ׳׳ ׳§׳™׳™׳׳•׳× ׳×׳ ׳•׳¢׳•׳× ׳¢׳ subType ׳§׳‘׳•׳¢.
+            הערה: ״הוצאות קבועות״ מחושבות רק אם קיימות תנועות עם subType קבוע.
           </div>
         </div>
       </div>

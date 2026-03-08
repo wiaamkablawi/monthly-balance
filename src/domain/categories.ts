@@ -1,4 +1,4 @@
-﻿export const ADD_ENTRY_EXPENSE_CATEGORIES = [
+export const ADD_ENTRY_EXPENSE_CATEGORIES = [
   "דיור",
   "מזון",
   "רכב",
