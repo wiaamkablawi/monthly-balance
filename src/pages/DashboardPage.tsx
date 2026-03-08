@@ -88,6 +88,13 @@ type ParsedImportRow = {
   selected: boolean;
 };
 
+type ImportFingerprintInput = {
+  type: EntryDoc["type"];
+  date: string;
+  category: string;
+  amount: number;
+};
+
 function toISODateString(v: any, fallbackISO: string): string {
   if (!v) return fallbackISO;
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
@@ -111,6 +118,14 @@ function detectTypeFromRaw(typeRaw: string, amount: number): EntryDoc["type"] {
   if (t.includes("income") || t.includes("׳”׳›׳ ׳¡׳”") || t.includes("credit") || t.includes("׳–׳™׳›׳•׳™")) return "income";
   if (t.includes("expense") || t.includes("׳”׳•׳¦׳׳”") || t.includes("debit") || t.includes("׳—׳™׳•׳‘")) return "expense";
   return amount >= 0 ? "income" : "expense";
+}
+
+function buildImportFingerprint(input: ImportFingerprintInput): string {
+  const normalizedType = input.type === "income" ? "income" : "expense";
+  const normalizedDate = String(input.date || "").trim();
+  const normalizedCategory = String(input.category || "").trim().toLowerCase();
+  const normalizedAmount = Math.abs(Number(input.amount || 0));
+  return `${normalizedType}|${normalizedDate}|${normalizedAmount.toFixed(2)}|${normalizedCategory}`;
 }
 
 async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedImportRow[]> {
@@ -223,13 +238,13 @@ function ImportEntriesModal(props: {
     if (saving) return;
     const selectedRows = rows.filter((r) => r.selected);
     if (!selectedRows.length) {
-      setErr("׳׳™׳ ׳©׳•׳¨׳•׳× ׳׳׳•׳©׳¨׳•׳× ׳׳©׳׳™׳¨׳”.");
+      setErr("אין שורות מאושרות לשמירה.");
       return;
     }
 
     const user = auth.currentUser;
     if (!user?.email) {
-      setErr("׳׳©׳×׳׳© ׳׳ ׳׳—׳•׳‘׳¨.");
+      setErr("משתמש לא מחובר.");
       return;
     }
 
@@ -237,27 +252,123 @@ function ImportEntriesModal(props: {
 
     setSaving(true);
     setErr("");
+    setNote("");
     try {
+      const preparedRows = selectedRows
+        .map((r) => {
+          const amountNum = Number(r.amount);
+          if (!Number.isFinite(amountNum) || amountNum <= 0) return null;
+
+          const dateISO = String(r.date || defaultDateISO).trim() || defaultDateISO;
+          const normalizedCategory = String(r.category || "אחר").trim() || "אחר";
+          const normalizedDescription = String(r.description || "").trim() || "ייבוא קובץ";
+          const normalizedAmount = Math.abs(amountNum);
+          const mk = monthKeyFromISO(dateISO) || monthKey;
+          const fingerprint = buildImportFingerprint({
+            type: r.type,
+            date: dateISO,
+            category: normalizedCategory,
+            amount: normalizedAmount,
+          });
+
+          return {
+            type: r.type,
+            dateISO,
+            monthKey: mk,
+            category: normalizedCategory,
+            description: normalizedDescription,
+            amount: normalizedAmount,
+            fingerprint,
+          };
+        })
+        .filter(
+          (
+            x
+          ): x is {
+            type: EntryDoc["type"];
+            dateISO: string;
+            monthKey: string;
+            category: string;
+            description: string;
+            amount: number;
+            fingerprint: string;
+          } => Boolean(x)
+        );
+
+      if (!preparedRows.length) {
+        setErr("אין שורות תקינות לשמירה. נא לעדכן סכום חיובי.");
+        return;
+      }
+
+      const uniqueRowsMap = new Map<string, (typeof preparedRows)[number]>();
+      preparedRows.forEach((r) => {
+        if (!uniqueRowsMap.has(r.fingerprint)) {
+          uniqueRowsMap.set(r.fingerprint, r);
+        }
+      });
+      const uniqueRows = Array.from(uniqueRowsMap.values());
+      const duplicatesInsideFile = preparedRows.length - uniqueRows.length;
+
+      const monthKeysToScan = Array.from(new Set(uniqueRows.map((r) => r.monthKey)));
+      const existingFingerprints = new Set<string>();
+
+      // Deduplicate against already persisted records in the same household/month.
+      for (const mk of monthKeysToScan) {
+        const qByMonth = query(
+          collection(db, "records"),
+          where("householdId", "==", householdId),
+          where("monthKey", "==", mk)
+        );
+        const snap = await getDocs(qByMonth);
+        snap.forEach((d) => {
+          const data = d.data() as Partial<EntryDoc>;
+          const type = data.type === "income" ? "income" : "expense";
+          const date = String(data.date || "").trim();
+          const category = String(data.category || "").trim();
+          const amount = Number(data.amount || 0);
+          if (!date || !category || !Number.isFinite(amount) || amount <= 0) return;
+          existingFingerprints.add(
+            buildImportFingerprint({
+              type,
+              date,
+              category,
+              amount,
+            })
+          );
+        });
+      }
+
+      const rowsToSave = uniqueRows.filter((r) => !existingFingerprints.has(r.fingerprint));
+      const duplicatesInSystem = uniqueRows.length - rowsToSave.length;
+
+      if (!rowsToSave.length) {
+        setErr("לא נוספו שורות: כל הרשומות שנבחרו כבר קיימות.");
+        if (duplicatesInsideFile > 0 || duplicatesInSystem > 0) {
+          setNote(
+            `כפילויות שזוהו: ${duplicatesInsideFile} בתוך הקובץ, ${duplicatesInSystem} כבר קיימות במערכת.`
+          );
+        }
+        return;
+      }
+
       const batch = writeBatch(db);
-      selectedRows.forEach((r) => {
-        const amountNum = Number(r.amount);
-        if (!Number.isFinite(amountNum) || amountNum <= 0) return;
+      rowsToSave.forEach((r, i) => {
         const ref = doc(collection(db, "records"));
-        const mk = monthKeyFromISO(r.date || defaultDateISO);
         batch.set(ref, {
           type: r.type,
           subType: r.type === "expense" ? "variable" : undefined,
-          date: r.date || defaultDateISO,
-          monthKey: mk || monthKey,
-          category: r.category || "׳׳—׳¨",
-          description: r.description || "׳™׳™׳‘׳•׳ ׳§׳•׳‘׳¥",
-          amount: Math.abs(amountNum),
+          date: r.dateISO,
+          monthKey: r.monthKey,
+          category: r.category,
+          description: r.description,
+          amount: r.amount,
           createdBy: user.email,
           ownerUid: user.uid,
           householdId,
           userKey: userKeyFromEmail(user.email),
           importSource: "file_upload",
-          createdAt: Date.now(),
+          importFingerprint: r.fingerprint,
+          createdAt: Date.now() + i,
         });
       });
 
@@ -265,7 +376,7 @@ function ImportEntriesModal(props: {
       onSaved();
       onClose();
     } catch (e: any) {
-      setErr(e?.message || "׳©׳’׳™׳׳” ׳‘׳©׳׳™׳¨׳× ׳©׳•׳¨׳•׳×.");
+      setErr(e?.message || "שגיאה בשמירת שורות.");
     } finally {
       setSaving(false);
     }
@@ -1510,15 +1621,4 @@ export default function DashboardPage() {
     </AppLayout>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
 
