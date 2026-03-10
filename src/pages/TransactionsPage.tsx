@@ -19,6 +19,12 @@ import {
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
+function parseAmountInput(v: string): number | null {
+  const n = Number((v || "").replace(/,/g, "").trim());
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
 export default function TransactionsPage() {
   const [monthKey, setMonthKey] = useState(currentMonthKey());
   const [state, setState] = useState<LoadState>("idle");
@@ -104,24 +110,70 @@ export default function TransactionsPage() {
   }
 
   async function saveEdit(it: EntryDoc) {
+    const normalizedAmount = parseAmountInput(editAmount);
+    if (!editDate) {
+      setErr("נא לבחור תאריך תקין.");
+      return;
+    }
+    if (!normalizedAmount) {
+      setErr("נא להזין סכום חיובי תקין.");
+      return;
+    }
+
     const mk = monthKeyFromISO(editDate);
+    const updatedAt = Date.now();
 
-    await updateDoc(doc(db, "records", it.id), {
-      date: editDate,
-      monthKey: mk,
-      category: editCategory,
-      description: editDescription,
-      amount: Number(editAmount),
-      updatedAt: Date.now(),
-    });
+    try {
+      await updateDoc(doc(db, "records", it.id), {
+        date: editDate,
+        monthKey: mk,
+        category: editCategory,
+        description: editDescription,
+        amount: normalizedAmount,
+        updatedAt,
+      });
 
-    setEditingId(null);
+      setItems((prev) => {
+        if (mk !== monthKey) {
+          return prev.filter((x) => x.id !== it.id);
+        }
+
+        return prev
+          .map((x) =>
+            x.id === it.id
+              ? {
+                  ...x,
+                  date: editDate,
+                  monthKey: mk,
+                  category: editCategory,
+                  description: editDescription,
+                  amount: normalizedAmount,
+                  updatedAt,
+                }
+              : x
+          )
+          .sort((a, b) =>
+            Number(b.updatedAt || b.createdAt || 0) -
+            Number(a.updatedAt || a.createdAt || 0)
+          );
+      });
+
+      setErr("");
+      setEditingId(null);
+    } catch (e: any) {
+      setErr(e?.message || "שגיאה בעדכון התנועה.");
+    }
   }
 
   async function onDelete(it: EntryDoc) {
     if (!window.confirm("למחוק את התנועה?")) return;
-    await deleteDoc(doc(db, "records", it.id));
-    setItems((prev) => prev.filter((x) => x.id !== it.id));
+    try {
+      await deleteDoc(doc(db, "records", it.id));
+      setItems((prev) => prev.filter((x) => x.id !== it.id));
+      setErr("");
+    } catch (e: any) {
+      setErr(e?.message || "שגיאה במחיקת התנועה.");
+    }
   }
 
   /* =========================
@@ -316,6 +368,5 @@ export default function TransactionsPage() {
     </AppLayout>
   );
 }
-
 
 
