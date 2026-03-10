@@ -11,6 +11,7 @@ import { formatILS } from "../utils/money";
 import { auth } from "../services/firebase";
 import { db } from "../services/firebaseDb";
 import type { EntryDoc } from "../types/models";
+import { getAvailableMonthKeys } from "../services/entriesService";
 
 import {
   Chart as ChartJS,
@@ -46,6 +47,15 @@ function toMillis(v: any): number {
 }
 
 type LoadState = "idle" | "loading" | "ready" | "error";
+
+function logWithTs(message: string, extra?: Record<string, unknown>) {
+  const ts = new Date().toISOString();
+  if (extra) {
+    console.log(`[${ts}] ${message}`, extra);
+    return;
+  }
+  console.log(`[${ts}] ${message}`);
+}
 
 function typeLabel(e: EntryDoc): string {
   if (e.type === "income") return "הכנסה";
@@ -845,18 +855,36 @@ export default function DashboardPage() {
   const [editErr, setEditErr] = useState<string>("");
 
   const [variableExpensesTrend, setVariableExpensesTrend] = useState<{ month: string; value: number }[]>([]);
+  const [months, setMonths] = useState<string[]>([currentMonthKey()]);
 
-  const months = useMemo(() => {
-    const out: string[] = [];
-    const now = new Date();
-    for (let i = 0; i < 18; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      out.push(`${y}-${m}`);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMonthOptions() {
+      const user = auth.currentUser;
+      if (!user?.email) {
+        logWithTs("Dashboard month options: no user email, fallback to current month");
+        setMonths([currentMonthKey()]);
+        return;
+      }
+
+      try {
+        const householdId = householdIdFromEmail(user.email);
+        const loaded = await getAvailableMonthKeys(householdId, 18);
+        logWithTs("Dashboard month options loaded", { householdId, count: loaded.length, latest: loaded[0] || null });
+        if (!cancelled && loaded.length) setMonths(loaded);
+      } catch (e: any) {
+        logWithTs("Dashboard month options load failed, fallback to current month", { error: e?.message || "unknown" });
+        if (!cancelled) setMonths([currentMonthKey()]);
+      }
     }
-    return out;
-  }, []);
+
+    loadMonthOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
 
   async function ensureFixedRealizationsForMonth(targetMonthKey: string) {
     const user = auth.currentUser;
@@ -1006,6 +1034,17 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [monthKey, reloadKey]);
+
+  useEffect(() => {
+    if (!months.length) return;
+    if (!months.includes(monthKey)) {
+      logWithTs("Dashboard selected month updated to latest available", {
+        previous: monthKey,
+        next: months[0],
+      });
+      setMonthKey(months[0]);
+    }
+  }, [months, monthKey]);
 
   // מגמת הוצאות משתנות ל-6 חודשים אחרונים
   useEffect(() => {
