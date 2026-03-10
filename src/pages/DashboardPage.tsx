@@ -11,6 +11,7 @@ import { formatILS } from "../utils/money";
 import { auth } from "../services/firebase";
 import { db } from "../services/firebaseDb";
 import type { EntryDoc } from "../types/models";
+import { getAvailableMonthKeys } from "../services/entriesService";
 
 import {
   Chart as ChartJS,
@@ -845,18 +846,33 @@ export default function DashboardPage() {
   const [editErr, setEditErr] = useState<string>("");
 
   const [variableExpensesTrend, setVariableExpensesTrend] = useState<{ month: string; value: number }[]>([]);
+  const [months, setMonths] = useState<string[]>([currentMonthKey()]);
 
-  const months = useMemo(() => {
-    const out: string[] = [];
-    const now = new Date();
-    for (let i = 0; i < 18; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      out.push(`${y}-${m}`);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMonthOptions() {
+      const user = auth.currentUser;
+      if (!user?.email) {
+        setMonths([currentMonthKey()]);
+        return;
+      }
+
+      try {
+        const householdId = householdIdFromEmail(user.email);
+        const loaded = await getAvailableMonthKeys(householdId, 18);
+        if (!cancelled && loaded.length) setMonths(loaded);
+      } catch {
+        if (!cancelled) setMonths([currentMonthKey()]);
+      }
     }
-    return out;
-  }, []);
+
+    loadMonthOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
 
   async function ensureFixedRealizationsForMonth(targetMonthKey: string) {
     const user = auth.currentUser;
@@ -1006,6 +1022,13 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [monthKey, reloadKey]);
+
+  useEffect(() => {
+    if (!months.length) return;
+    if (!months.includes(monthKey)) {
+      setMonthKey(months[0]);
+    }
+  }, [months, monthKey]);
 
   // מגמת הוצאות משתנות ל-6 חודשים אחרונים
   useEffect(() => {

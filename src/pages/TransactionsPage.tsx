@@ -6,6 +6,7 @@ import { auth } from "../services/firebase";
 import { db } from "../services/firebaseDb";
 import type { EntryDoc } from "../types/models";
 import { householdIdFromEmail } from "../services/authService";
+import { getAvailableMonthKeys } from "../services/entriesService";
 import {
   collection,
   deleteDoc,
@@ -30,6 +31,7 @@ export default function TransactionsPage() {
   const [state, setState] = useState<LoadState>("idle");
   const [err, setErr] = useState("");
   const [items, setItems] = useState<EntryDoc[]>([]);
+  const [monthOptions, setMonthOptions] = useState<string[]>([currentMonthKey()]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState("");
@@ -38,6 +40,31 @@ export default function TransactionsPage() {
   const [editAmount, setEditAmount] = useState("");
 
   const openSwipeId = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMonthOptions() {
+      const user = auth.currentUser;
+      if (!user?.email) {
+        setMonthOptions([currentMonthKey()]);
+        return;
+      }
+
+      try {
+        const householdId = householdIdFromEmail(user.email);
+        const loaded = await getAvailableMonthKeys(householdId, 24);
+        if (!cancelled && loaded.length) setMonthOptions(loaded);
+      } catch {
+        if (!cancelled) setMonthOptions([currentMonthKey()]);
+      }
+    }
+
+    loadMonthOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [monthKey]);
 
   /* =========================
      Load data
@@ -93,6 +120,13 @@ export default function TransactionsPage() {
       cancelled = true;
     };
   }, [monthKey]);
+
+  useEffect(() => {
+    if (!monthOptions.length) return;
+    if (!monthOptions.includes(monthKey)) {
+      setMonthKey(monthOptions[0]);
+    }
+  }, [monthOptions, monthKey]);
 
   /* =========================
      Edit helpers
@@ -252,18 +286,11 @@ export default function TransactionsPage() {
           value={monthKey}
           onChange={(e) => setMonthKey(e.target.value)}
         >
-          {Array.from({ length: 24 }).map((_, i) => {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const mk = `${d.getFullYear()}-${String(
-              d.getMonth() + 1
-            ).padStart(2, "0")}`;
-            return (
-              <option key={mk} value={mk}>
-                {mk}
-              </option>
-            );
-          })}
+          {monthOptions.map((mk) => (
+            <option key={mk} value={mk}>
+              {mk}
+            </option>
+          ))}
         </select>
       </div>
 
