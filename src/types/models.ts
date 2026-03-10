@@ -1,7 +1,7 @@
-export type UserKey = "W" | "B" | "SYSTEM";
+﻿export type UserKey = "W" | "B" | "SYSTEM";
 
 export type EntryType = "income" | "expense";
-export type EntrySubType = "variable" | "fixed_realization";
+export type EntrySubType = "variable" | "fixed" | "fixed_realization";
 
 export interface EntryDoc {
   id: string;
@@ -53,3 +53,4 @@ export interface FixedExpenseDoc {
   updatedAt: number;
   updatedBy: string;
 }
+

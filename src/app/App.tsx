@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { watchAuth } from "../services/authService";
 import type { User } from "firebase/auth";
+import { APP_BUILD } from "./buildInfo";
 
 const DashboardPage = lazy(() => import("../pages/DashboardPage"));
 const AddEntryPage = lazy(() => import("../pages/AddEntryPage"));
@@ -9,16 +10,25 @@ const TransactionsPage = lazy(() => import("../pages/TransactionsPage"));
 const SettingsPage = lazy(() => import("../pages/SettingsPage"));
 const LoginPage = lazy(() => import("../pages/LoginPage"));
 
-function Protected(props: { user: User | null; children: React.ReactNode }) {
+declare global {
+  interface Window {
+    __MONTHLY_BALANCE_BUILD__?: string;
+    __MONTHLY_BALANCE_BUILD_LOGGED__?: boolean;
+    __MONTHLY_BALANCE_LAST_AUTH_LOG__?: string;
+  }
+}
+
+function Protected(props: { ready: boolean; user: User | null; children: React.ReactNode }) {
+  if (!props.ready) return <LoadingScreen message="טוען את המשתמש והנתונים..." />;
   if (!props.user) return <Navigate to="/login" replace />;
   return <>{props.children}</>;
 }
 
-function LoadingScreen() {
+function LoadingScreen(props: { message?: string }) {
   return (
     <div className="container" style={{ paddingTop: 32 }}>
       <div className="card">
-        <div className="muted">טוען...</div>
+        <div className="muted">{props.message || "טוען..."}</div>
       </div>
     </div>
   );
@@ -26,11 +36,38 @@ function LoadingScreen() {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    const unsub = watchAuth((u) => setUser(u));
-    return () => unsub();
+    window.__MONTHLY_BALANCE_BUILD__ = APP_BUILD;
+
+    if (!window.__MONTHLY_BALANCE_BUILD_LOGGED__) {
+      console.info(`[monthly-balance] build ${APP_BUILD}`);
+      window.__MONTHLY_BALANCE_BUILD_LOGGED__ = true;
+    }
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = watchAuth((nextUser) => {
+      setUser(nextUser);
+      setAuthReady(true);
+
+      const authLogKey = `${nextUser?.uid || "null"}:${APP_BUILD}`;
+      if (window.__MONTHLY_BALANCE_LAST_AUTH_LOG__ !== authLogKey) {
+        console.info(`[monthly-balance] auth ${APP_BUILD}`, {
+          email: nextUser?.email || null,
+          ready: true,
+        });
+        window.__MONTHLY_BALANCE_LAST_AUTH_LOG__ = authLogKey;
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  if (!authReady) {
+    return <LoadingScreen message="טוען את סביבת Firebase..." />;
+  }
 
   return (
     <Suspense fallback={<LoadingScreen />}>
@@ -40,7 +77,7 @@ export default function App() {
         <Route
           path="/"
           element={
-            <Protected user={user}>
+            <Protected ready={authReady} user={user}>
               <DashboardPage />
             </Protected>
           }
@@ -49,7 +86,7 @@ export default function App() {
         <Route
           path="/add"
           element={
-            <Protected user={user}>
+            <Protected ready={authReady} user={user}>
               <AddEntryPage />
             </Protected>
           }
@@ -58,7 +95,7 @@ export default function App() {
         <Route
           path="/transactions"
           element={
-            <Protected user={user}>
+            <Protected ready={authReady} user={user}>
               <TransactionsPage />
             </Protected>
           }
@@ -67,7 +104,7 @@ export default function App() {
         <Route
           path="/settings"
           element={
-            <Protected user={user}>
+            <Protected ready={authReady} user={user}>
               <SettingsPage />
             </Protected>
           }

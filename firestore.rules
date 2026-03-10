@@ -29,6 +29,24 @@ service cloud.firestore {
       return householdIdForEmail(authEmail());
     }
 
+    function legacyDocEmail(data) {
+      return data.createdBy is string
+        ? data.createdBy.lower()
+        : data.userEmail is string
+        ? data.userEmail.lower()
+        : data.ownerEmail is string
+        ? data.ownerEmail.lower()
+        : data.email is string
+        ? data.email.lower()
+        : "";
+    }
+
+    function legacyDocOwnerUid(data) {
+      return data.ownerUid is string && data.ownerUid.size() > 0
+        ? data.ownerUid
+        : request.auth.uid;
+    }
+
     function canAccessHouseholdDoc(data) {
       return signedIn()
         && isAllowedEmail()
@@ -36,8 +54,23 @@ service cloud.firestore {
         && data.householdId == authHouseholdId();
     }
 
+    function canAccessLegacyRecord(data) {
+      return signedIn()
+        && isAllowedEmail()
+        && legacyDocEmail(data) in [
+          "k.wiaam@gmail.com",
+          "boshra.kablawi@gmail.com"
+        ];
+    }
+
+    function canAccessLegacyFixedTemplate(data) {
+      return signedIn()
+        && isAllowedEmail()
+        && !(data.householdId is string);
+    }
+
     match /records/{recordId} {
-      allow read: if canAccessHouseholdDoc(resource.data);
+      allow read: if signedIn() && isAllowedEmail();
 
       allow create: if signedIn()
         && isAllowedEmail()
@@ -46,28 +79,42 @@ service cloud.firestore {
         && request.resource.data.createdBy == authEmail()
         && request.resource.data.monthKey is string;
 
-      allow update: if canAccessHouseholdDoc(resource.data)
-        && canAccessHouseholdDoc(request.resource.data)
-        && request.resource.data.householdId == resource.data.householdId
-        && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.createdBy == resource.data.createdBy;
+      allow update: if (
+          canAccessHouseholdDoc(resource.data)
+          && canAccessHouseholdDoc(request.resource.data)
+          && request.resource.data.householdId == resource.data.householdId
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.createdBy == resource.data.createdBy
+        ) || (
+          canAccessLegacyRecord(resource.data)
+          && canAccessHouseholdDoc(request.resource.data)
+          && request.resource.data.ownerUid == legacyDocOwnerUid(resource.data)
+          && request.resource.data.createdBy == legacyDocEmail(resource.data)
+          && request.resource.data.monthKey is string
+        );
 
-      allow delete: if canAccessHouseholdDoc(resource.data);
+      allow delete: if canAccessHouseholdDoc(resource.data)
+        || canAccessLegacyRecord(resource.data);
     }
 
     match /fixed_templates/{templateId} {
-      allow read: if canAccessHouseholdDoc(resource.data);
+      allow read: if signedIn();
 
       allow create: if signedIn()
         && isAllowedEmail()
         && request.resource.data.householdId == authHouseholdId()
         && request.resource.data.createdBy == authEmail();
 
-      allow update: if canAccessHouseholdDoc(resource.data)
-        && canAccessHouseholdDoc(request.resource.data)
-        && request.resource.data.householdId == resource.data.householdId;
+      allow update: if signedIn()
+        && isAllowedEmail()
+        && request.resource.data.householdId == authHouseholdId()
+        && (
+          canAccessHouseholdDoc(resource.data)
+          || canAccessLegacyFixedTemplate(resource.data)
+        );
 
-      allow delete: if canAccessHouseholdDoc(resource.data);
+      allow delete: if canAccessHouseholdDoc(resource.data)
+        || canAccessLegacyFixedTemplate(resource.data);
     }
 
     match /imageImports/{docId} {
@@ -84,4 +131,3 @@ service cloud.firestore {
     }
   }
 }
-

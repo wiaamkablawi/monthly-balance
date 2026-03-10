@@ -1,1622 +1,409 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { householdIdFromEmail, userKeyFromEmail } from "../services/authService";
+﻿import React, { useEffect, useMemo, useState, useTransition } from "react";
 import {
-  DASHBOARD_FIXED_EXPENSE_CATEGORIES,
-  DASHBOARD_INCOME_CATEGORIES,
-  DASHBOARD_VARIABLE_EXPENSE_CATEGORIES,
-} from "../domain/categories";
-import AppLayout from "../app/layout/AppLayout";
-import { currentMonthKey, monthKeyFromISO } from "../utils/dates";
-import { formatILS } from "../utils/money";
-import { auth } from "../services/firebase";
-import { db } from "../services/firebaseDb";
-import type { EntryDoc } from "../types/models";
-
-import {
-  Chart as ChartJS,
   ArcElement,
-  Tooltip,
-  Legend,
-  CategoryScale,
-  LinearScale,
   BarElement,
+  CategoryScale,
+  Chart as ChartJS,
+  Legend,
+  LinearScale,
+  Tooltip,
 } from "chart.js";
-import { Doughnut, Bar } from "react-chartjs-2";
+import { Bar, Doughnut } from "react-chartjs-2";
+import { Link } from "react-router-dom";
+import AppLayout from "../app/layout/AppLayout";
+import ImportEntriesModal from "../components/entry/ImportEntriesModal";
+import { buildDashboardInsights, groupVariableExpensesByCategory, summarizeMonthlyEntries } from "../domain/analytics";
+import { getEntryLifecycle, getEntryTone, getEntryTypeLabel, getInstallmentLabel } from "../domain/entries";
+import { listAvailableMonthKeys, listMonthEntries, listVariableExpenseTrend } from "../services/recordsService";
+import type { EntryDoc } from "../types/models";
+import { currentMonthKey, formatMonthKey, listRecentMonthKeys, todayISO } from "../utils/dates";
+import { formatILS } from "../utils/money";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  updateDoc,
-  where,
-  writeBatch,
-} from "firebase/firestore";
-
-function toMillis(v: any): number {
-  if (!v) return 0;
-  if (typeof v === "number") return v;
-  if (typeof v?.toMillis === "function") return v.toMillis();
-  if (typeof v?.seconds === "number") return v.seconds * 1000;
-  return 0;
-}
+const chartPalette = ["#0f766e", "#0891b2", "#2563eb", "#059669", "#ca8a04", "#ea580c"];
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
-function typeLabel(e: EntryDoc): string {
-  if (e.type === "income") return "הכנסה";
-  return "הוצאה";
-}
-
-function isFixedExpense(e: any): boolean {
-  return e?.type === "expense" && (e?.subType === "fixed" || e?.subType === "fixed_realization");
-}
-
-function isVariableExpense(e: any): boolean {
-  return e?.type === "expense" && (e?.subType === "variable" || !e?.subType);
-}
-
-type AddKind = "income" | "expense_variable" | "expense_fixed";
-
-function kindToDoc(kind: AddKind): { type: EntryDoc["type"]; subType?: EntryDoc["subType"] } {
-  if (kind === "income") return { type: "income" };
-  if (kind === "expense_fixed") return { type: "expense", subType: "fixed_realization" };
-  return { type: "expense", subType: "variable" };
-}
-
-function isValidPositiveNumber(n: number): boolean {
-  return Number.isFinite(n) && n > 0;
-}
-
-function parseAmountInput(v: string): number | null {
-  const n = Number((v || "").replace(/,/g, "").trim());
-  if (!isValidPositiveNumber(n)) return null;
-  return n;
-}
-
-type ParsedImportRow = {
-  id: string;
-  type: EntryDoc["type"];
-  date: string;
-  category: string;
-  description: string;
-  amount: string;
-  selected: boolean;
-};
-
-type ImportFingerprintInput = {
-  type: EntryDoc["type"];
-  date: string;
-  category: string;
-  amount: number;
-};
-
-function toISODateString(v: any, fallbackISO: string): string {
-  if (!v) return fallbackISO;
-  if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    const yyyy = v.getFullYear();
-    const mm = String(v.getMonth() + 1).padStart(2, "0");
-    const dd = String(v.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-  const s = String(v).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const m = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
-  if (!m) return fallbackISO;
-  const dd = m[1].padStart(2, "0");
-  const mm = m[2].padStart(2, "0");
-  const yyyy = (m[3].length === 2 ? `20${m[3]}` : m[3]).padStart(4, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function detectTypeFromRaw(typeRaw: string, amount: number): EntryDoc["type"] {
-  const t = typeRaw.trim().toLowerCase();
-  if (t.includes("income") || t.includes("הכנסה") || t.includes("credit") || t.includes("זיכוי")) return "income";
-  if (t.includes("expense") || t.includes("הוצאה") || t.includes("debit") || t.includes("חיוב")) return "expense";
-  return amount >= 0 ? "income" : "expense";
-}
-
-function buildImportFingerprint(input: ImportFingerprintInput): string {
-  const normalizedType = input.type === "income" ? "income" : "expense";
-  const normalizedDate = String(input.date || "").trim();
-  const normalizedCategory = String(input.category || "").trim().toLowerCase();
-  const normalizedAmount = Math.abs(Number(input.amount || 0));
-  return `${normalizedType}|${normalizedDate}|${normalizedAmount.toFixed(2)}|${normalizedCategory}`;
-}
-
-async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedImportRow[]> {
-  const ext = file.name.split(".").pop()?.toLowerCase();
-
-  if (ext === "xlsx" || ext === "xls" || ext === "csv") {
-    const buffer = await file.arrayBuffer();
-    const XLSX = await import("xlsx");
-    const wb = XLSX.read(buffer, { type: "array", cellDates: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" });
-
-    return rows
-      .map((row, i): ParsedImportRow | null => {
-        const amountRaw = row.amount || row.Amount || row.sum || row.Total || row["סכום"] || row["חיוב"] || row["זיכוי"];
-        const numericAmount = Number(String(amountRaw || "").replace(/,/g, "").trim());
-        if (!Number.isFinite(numericAmount) || numericAmount === 0) return null;
-
-        const dateRaw = row.date || row.Date || row["תאריך"];
-        const descRaw = row.description || row.Description || row.details || row["תיאור"] || "";
-        const categoryRaw = row.category || row.Category || row["קטגוריה"] || "אחר";
-        const typeRaw = row.type || row.Type || row["סוג"] || "";
-        const type = detectTypeFromRaw(String(typeRaw || ""), numericAmount);
-
-        return {
-          id: `${file.name}-${i}-${Math.random().toString(16).slice(2)}`,
-          type,
-          date: toISODateString(dateRaw, fallbackISO),
-          category: String(categoryRaw || "אחר").trim(),
-          description: String(descRaw || "").trim() || "ייבוא קובץ",
-          amount: String(Math.abs(numericAmount)),
-          selected: true,
-        };
-      })
-      .filter((x): x is ParsedImportRow => Boolean(x));
-  }
-
-  if (ext === "pdf" || ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "webp") {
-    return [
-      {
-        id: `${file.name}-manual-1`,
-        type: "expense",
-        date: fallbackISO,
-        category: "אחר",
-        description: `טיוטה מקובץ ${file.name} (נדרש דיוק ידני)`,
-        amount: "0",
-        selected: true,
-      },
-    ];
-  }
-
-  return [];
-}
-
-function ImportEntriesModal(props: {
-  open: boolean;
-  onClose: () => void;
-  monthKey: string;
-  defaultDateISO: string;
-  onSaved: () => void;
-}) {
-  const { open, onClose, monthKey, defaultDateISO, onSaved } = props;
-  const [rows, setRows] = useState<ParsedImportRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
-  const [note, setNote] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setRows([]);
-    setErr("");
-    setNote("");
-  }, [open]);
-
-  async function onUploadFile(file?: File) {
-    if (!file || loading) return;
-    setLoading(true);
-    setErr("");
-    setNote("");
-
-    try {
-      const parsed = await parseFileToRows(file, defaultDateISO);
-      if (!parsed.length) {
-        setErr("לא הצלחנו לזהות שורות בקובץ. אפשר לערוך ידנית אחרי בחירת קובץ נתמך.");
-        return;
-      }
-
-      if (file.name.match(/\.(pdf|png|jpg|jpeg|webp)$/i)) {
-        setNote("בקובצי PDF/תמונה נפתחת טיוטה לעריכה ידנית לפני אישור.");
-      }
-
-      setRows(parsed);
-    } catch (e: any) {
-      setErr(e?.message || "שגיאה בניתוח הקובץ.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function updateRow(id: string, patch: Partial<ParsedImportRow>) {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-  }
-
-  function selectAll(next: boolean) {
-    setRows((prev) => prev.map((r) => ({ ...r, selected: next })));
-  }
-
-  async function saveSelected() {
-    if (saving) return;
-    const selectedRows = rows.filter((r) => r.selected);
-    if (!selectedRows.length) {
-      setErr("אין שורות מאושרות לשמירה.");
-      return;
-    }
-
-    const user = auth.currentUser;
-    if (!user?.email) {
-      setErr("משתמש לא מחובר.");
-      return;
-    }
-
-    const householdId = householdIdFromEmail(user.email);
-
-    setSaving(true);
-    setErr("");
-    setNote("");
-    try {
-      const preparedRows = selectedRows
-        .map((r) => {
-          const amountNum = Number(r.amount);
-          if (!Number.isFinite(amountNum) || amountNum <= 0) return null;
-
-          const dateISO = String(r.date || defaultDateISO).trim() || defaultDateISO;
-          const normalizedCategory = String(r.category || "אחר").trim() || "אחר";
-          const normalizedDescription = String(r.description || "").trim() || "ייבוא קובץ";
-          const normalizedAmount = Math.abs(amountNum);
-          const mk = monthKeyFromISO(dateISO) || monthKey;
-          const fingerprint = buildImportFingerprint({
-            type: r.type,
-            date: dateISO,
-            category: normalizedCategory,
-            amount: normalizedAmount,
-          });
-
-          return {
-            type: r.type,
-            dateISO,
-            monthKey: mk,
-            category: normalizedCategory,
-            description: normalizedDescription,
-            amount: normalizedAmount,
-            fingerprint,
-          };
-        })
-        .filter(
-          (
-            x
-          ): x is {
-            type: EntryDoc["type"];
-            dateISO: string;
-            monthKey: string;
-            category: string;
-            description: string;
-            amount: number;
-            fingerprint: string;
-          } => Boolean(x)
-        );
-
-      if (!preparedRows.length) {
-        setErr("אין שורות תקינות לשמירה. נא לעדכן סכום חיובי.");
-        return;
-      }
-
-      const uniqueRowsMap = new Map<string, (typeof preparedRows)[number]>();
-      preparedRows.forEach((r) => {
-        if (!uniqueRowsMap.has(r.fingerprint)) {
-          uniqueRowsMap.set(r.fingerprint, r);
-        }
-      });
-      const uniqueRows = Array.from(uniqueRowsMap.values());
-      const duplicatesInsideFile = preparedRows.length - uniqueRows.length;
-
-      const monthKeysToScan = Array.from(new Set(uniqueRows.map((r) => r.monthKey)));
-      const existingFingerprints = new Set<string>();
-
-      // Deduplicate against already persisted records in the same household/month.
-      for (const mk of monthKeysToScan) {
-        const qByMonth = query(
-          collection(db, "records"),
-          where("householdId", "==", householdId),
-          where("monthKey", "==", mk)
-        );
-        const snap = await getDocs(qByMonth);
-        snap.forEach((d) => {
-          const data = d.data() as Partial<EntryDoc>;
-          const type = data.type === "income" ? "income" : "expense";
-          const date = String(data.date || "").trim();
-          const category = String(data.category || "").trim();
-          const amount = Number(data.amount || 0);
-          if (!date || !category || !Number.isFinite(amount) || amount <= 0) return;
-          existingFingerprints.add(
-            buildImportFingerprint({
-              type,
-              date,
-              category,
-              amount,
-            })
-          );
-        });
-      }
-
-      const rowsToSave = uniqueRows.filter((r) => !existingFingerprints.has(r.fingerprint));
-      const duplicatesInSystem = uniqueRows.length - rowsToSave.length;
-
-      if (!rowsToSave.length) {
-        setErr("לא נוספו שורות: כל הרשומות שנבחרו כבר קיימות.");
-        if (duplicatesInsideFile > 0 || duplicatesInSystem > 0) {
-          setNote(
-            `כפילויות שזוהו: ${duplicatesInsideFile} בתוך הקובץ, ${duplicatesInSystem} כבר קיימות במערכת.`
-          );
-        }
-        return;
-      }
-
-      const batch = writeBatch(db);
-      rowsToSave.forEach((r, i) => {
-        const ref = doc(collection(db, "records"));
-        batch.set(ref, {
-          type: r.type,
-          subType: r.type === "expense" ? "variable" : undefined,
-          date: r.dateISO,
-          monthKey: r.monthKey,
-          category: r.category,
-          description: r.description,
-          amount: r.amount,
-          createdBy: user.email,
-          ownerUid: user.uid,
-          householdId,
-          userKey: userKeyFromEmail(user.email),
-          importSource: "file_upload",
-          importFingerprint: r.fingerprint,
-          createdAt: Date.now() + i,
-        });
-      });
-
-      await batch.commit();
-      onSaved();
-      onClose();
-    } catch (e: any) {
-      setErr(e?.message || "שגיאה בשמירת שורות.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!open) return null;
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 60,
-        background: "rgba(15, 23, 42, 0.25)",
-        backdropFilter: "blur(6px)",
-        display: "grid",
-        placeItems: "center",
-        padding: 14,
-      }}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div style={{ width: "min(1080px, 96vw)", maxHeight: "85vh", overflow: "auto", borderRadius: 18, border: "1px solid rgba(15,23,42,0.10)", background: "#fff", boxShadow: "0 24px 70px rgba(2,6,23,0.20)", padding: 18 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-          <div style={{ fontWeight: 900 }}>הוספת קובץ וניתוח תנועות</div>
-          <button className="btn secondary" type="button" onClick={onClose} disabled={saving || loading}>
-            סגור
-          </button>
-        </div>
-        <div style={{ height: 12 }} />
-
-        <input
-          className="input"
-          type="file"
-          accept=".xlsx,.xls,.csv,.pdf,image/*"
-          onChange={(e) => onUploadFile(e.target.files?.[0])}
-          disabled={loading || saving}
-        />
-
-        <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-          המערכת תנתח את הקובץ ותציע פעולות. אפשר לאשר הכל, לדחות הכל או לערוך כל שורה בנפרד.
-        </div>
-
-        {note ? <div className="muted" style={{ marginTop: 8 }}>{note}</div> : null}
-        {err ? <div className="error" style={{ marginTop: 8 }}>{err}</div> : null}
-
-        {rows.length ? (
-          <>
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button className="btn secondary" type="button" onClick={() => selectAll(true)} disabled={saving || loading}>
-                אשר הכל
-              </button>
-              <button className="btn secondary" type="button" onClick={() => selectAll(false)} disabled={saving || loading}>
-                דחה הכל
-              </button>
-            </div>
-
-            <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-              {rows.map((r) => (
-                <div key={r.id} className="card" style={{ display: "grid", gap: 8 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input type="checkbox" checked={r.selected} onChange={(e) => updateRow(r.id, { selected: e.target.checked })} />
-                    לאשר שורה
-                  </label>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                    <select className="input" value={r.type} onChange={(e) => updateRow(r.id, { type: e.target.value as EntryDoc["type"] })}>
-                      <option value="expense">הוצאה</option>
-                      <option value="income">הכנסה</option>
-                    </select>
-                    <input className="input" type="date" value={r.date} onChange={(e) => updateRow(r.id, { date: e.target.value })} />
-                    <input className="input" value={r.amount} onChange={(e) => updateRow(r.id, { amount: e.target.value })} placeholder="סכום" />
-                    <input className="input" value={r.category} onChange={(e) => updateRow(r.id, { category: e.target.value })} placeholder="קטגוריה" />
-                    <input className="input" style={{ gridColumn: "1 / -1" }} value={r.description} onChange={(e) => updateRow(r.id, { description: e.target.value })} placeholder="תיאור" />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
-              <button className="btn" type="button" onClick={saveSelected} disabled={saving || loading}>
-                {saving ? "שומר..." : "שמור שורות מאושרות"}
-              </button>
-            </div>
-          </>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function AddEntryModal(props: {
-  open: boolean;
-  onClose: () => void;
-  monthKey: string;
-  defaultDateISO: string;
-  onSaved: () => void;
-}) {
-  const { open, onClose, monthKey, defaultDateISO, onSaved } = props;
-
-  const defaultCategoryForKind = (k: AddKind): string => {
-    if (k === "income") return DASHBOARD_INCOME_CATEGORIES[0];
-    if (k === "expense_fixed") return DASHBOARD_FIXED_EXPENSE_CATEGORIES[0];
-    return DASHBOARD_VARIABLE_EXPENSE_CATEGORIES[0];
-  };
-
-  const [kind, setKind] = useState<AddKind>("expense_variable");
-  const [date, setDate] = useState<string>(defaultDateISO);
-  const [category, setCategory] = useState<string>(defaultCategoryForKind("expense_variable"));
-  const [description, setDescription] = useState<string>("");
-  const [amount, setAmount] = useState<string>("");
-
-  const [installments, setInstallments] = useState<number>(1);
-  const [chargeDay, setChargeDay] = useState<number>(1);
-
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string>("");
-
-  const isIncome = kind === "income";
-  const isExpense = kind !== "income";
-
-  const categoryOptions = useMemo(() => {
-    if (isIncome) return DASHBOARD_INCOME_CATEGORIES;
-    if (kind === "expense_fixed") return DASHBOARD_FIXED_EXPENSE_CATEGORIES;
-    return DASHBOARD_VARIABLE_EXPENSE_CATEGORIES;
-  }, [isIncome, kind]);
-
-  // איפוס יסודי בכל פתיחה של המודאל
-  useEffect(() => {
-    if (!open) return;
-
-    setErr("");
-    setKind("expense_variable");
-    setDate(defaultDateISO);
-    setCategory(DASHBOARD_VARIABLE_EXPENSE_CATEGORIES[0]);
-    setDescription("");
-    setAmount("");
-    setInstallments(1);
-    setChargeDay(1);
-  }, [open, defaultDateISO]);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (!open) return;
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
-
-  function toISODate(d: Date) {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  function addMonthsKeepingDay(base: Date, monthsToAdd: number, day: number) {
-    const y = base.getFullYear();
-    const m = base.getMonth() + monthsToAdd;
-
-    const d0 = new Date(y, m, 1);
-    const lastDay = new Date(d0.getFullYear(), d0.getMonth() + 1, 0).getDate();
-    const useDay = Math.min(Math.max(1, day), lastDay);
-
-    return new Date(d0.getFullYear(), d0.getMonth(), useDay);
-  }
-
-  function splitAmountToInstallments(total: number, n: number) {
-    const cents = Math.round(total * 100);
-    const base = Math.floor(cents / n);
-    const rem = cents - base * n;
-
-    const arr = new Array(n).fill(base);
-    for (let i = 0; i < rem; i++) arr[i] += 1;
-
-    return arr.map((c: number) => c / 100);
-  }
-
-  async function onSave() {
-    if (saving) return;
-
-    const amountNumber = parseAmountInput(amount);
-    if (!amountNumber) {
-      setErr("נא להזין סכום תקין.");
-      return;
-    }
-    if (!category) {
-      setErr("נא לבחור קטגוריה.");
-      return;
-    }
-    if (!date) {
-      setErr("נא לבחור תאריך.");
-      return;
-    }
-
-    const user = auth.currentUser;
-    if (!user?.email) {
-      setErr("משתמש לא מחובר.");
-      return;
-    }
-
-    const { type, subType } = kindToDoc(kind);
-    const installmentsNumber = Math.max(1, Math.min(120, Number(installments) || 1));
-    const chargeDayNumber = Math.max(1, Math.min(31, Number(chargeDay) || 1));
-    const shouldUseInstallments = isExpense && subType === "variable" && installmentsNumber > 1;
-
-    const householdId = householdIdFromEmail(user.email);
-
-    setSaving(true);
-    setErr("");
-
-    try {
-      const batch = writeBatch(db);
-
-      if (!shouldUseInstallments) {
-        const ref = doc(collection(db, "records"));
-        const payload: any = {
-          type,
-          date,
-          monthKey: monthKeyFromISO(date),
-          category,
-          description: description.trim(),
-          amount: amountNumber,
-          createdBy: user.email,
-          ownerUid: user.uid,
-          householdId,
-          userKey: userKeyFromEmail(user.email),
-          createdAt: Date.now(),
-        };
-
-        if (kind === "expense_fixed") {
-          payload.chargeDay = chargeDay;
-        }
-
-        if (subType) {
-          payload.subType = subType;
-        }
-
-        batch.set(ref, payload);
-        await batch.commit();
-
-        onSaved();
-        onClose();
-        return;
-      }
-
-      const nInst = installmentsNumber;
-      const amountsArr = splitAmountToInstallments(amountNumber, nInst);
-      const baseMonthFirstDay = new Date(date + "T00:00:00");
-      const groupId = `${user.email}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-      for (let i = 1; i <= nInst; i++) {
-        const amt = amountsArr[i - 1];
-
-        let chargeISO: string;
-        if (i === 1) {
-          chargeISO = date;
-        } else {
-          const chargeDate = addMonthsKeepingDay(baseMonthFirstDay, i - 1, chargeDayNumber);
-          chargeISO = toISODate(chargeDate);
-        }
-
-        const ref = doc(collection(db, "records"));
-        const payload: any = {
-          type,
-          subType,
-          date: chargeISO,
-          monthKey: monthKeyFromISO(chargeISO),
-          category,
-          description: description.trim(),
-          amount: amt,
-          createdBy: user.email,
-          ownerUid: user.uid,
-          householdId,
-          userKey: userKeyFromEmail(user.email),
-          createdAt: Date.now(),
-          installmentsTotal: nInst,
-          installmentIndex: i,
-          installmentGroupId: groupId,
-        };
-
-        batch.set(ref, payload);
-      }
-
-      await batch.commit();
-      onSaved();
-      onClose();
-    } catch (ex: any) {
-      setErr(ex?.message || "שגיאה בשמירה.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!open) return null;
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 60,
-        background: "rgba(15, 23, 42, 0.25)",
-        backdropFilter: "blur(6px)",
-        display: "grid",
-        placeItems: "center",
-        padding: 14,
-      }}
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        style={{
-          width: "min(920px, 96vw)",
-          borderRadius: 18,
-          border: "1px solid rgba(15,23,42,0.10)",
-          background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.90))",
-          boxShadow: "0 24px 70px rgba(2,6,23,0.20)",
-          padding: 18,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ fontWeight: 900 }}>הוספת תנועה</div>
-          <button className="btn secondary" type="button" onClick={onClose} disabled={saving}>
-            סגור
-          </button>
-        </div>
-
-        <div style={{ height: 14 }} />
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div>
-            <label>תאריך</label>
-            <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={saving} />
-          </div>
-
-          <div>
-            <label>סוג</label>
-            <select
-              className="input"
-              value={kind}
-              onChange={(e) => {
-                const nextKind = e.target.value as AddKind;
-                setKind(nextKind);
-                setCategory(defaultCategoryForKind(nextKind));
-                setDescription("");
-                setAmount("");
-                setInstallments(1);
-                setChargeDay(1);
-                setErr("");
-              }}
-              disabled={saving}
-            >
-              <option value="expense_variable">הוצאה משתנה</option>
-              <option value="expense_fixed">הוצאה קבועה</option>
-              <option value="income">הכנסה</option>
-            </select>
-          </div>
-
-          <div>
-            <label>סכום</label>
-            <input className="input" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
-          </div>
-
-          <div>
-            <label>קטגוריה</label>
-            <select className="input" value={category} onChange={(e) => setCategory(e.target.value)} disabled={saving}>
-              <option value="">בחר</option>
-              {categoryOptions.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label>תיאור</label>
-            <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} />
-          </div>
-
-          {isExpense && kind === "expense_variable" ? (
-            <>
-              <div>
-                <label>מספר תשלומים</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={120}
-                  value={installments}
-                  onChange={(e) => setInstallments(Number(e.target.value))}
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label>יום חיוב לתשלומים הבאים</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={31}
-                  value={chargeDay}
-                  onChange={(e) => setChargeDay(Number(e.target.value))}
-                  disabled={saving || installments <= 1}
-                />
-              </div>
-            </>
-          ) : null}
-
-          {kind === "expense_fixed" ? (
-            <div>
-              <label>יום חיוב חודשי</label>
-              <input
-                className="input"
-                type="number"
-                min={1}
-                max={28}
-                value={chargeDay}
-                onChange={(e) => setChargeDay(Number(e.target.value))}
-                disabled={saving}
-              />
-            </div>
-          ) : null}
-        </div>
-
-        {err ? (
-          <div className="error" style={{ marginTop: 10 }}>
-            {err}
-          </div>
-        ) : null}
-
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 16 }}>
-          <button className="btn secondary" type="button" onClick={onClose} disabled={saving}>
-            ביטול
-          </button>
-          <button className="btn" type="button" onClick={onSave} disabled={saving}>
-            {saving ? "שומר..." : "שמור"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+function mergeMonthOptions(primary: string[], secondary: string[]): string[] {
+  return Array.from(new Set([...primary, ...secondary])).sort((left, right) => right.localeCompare(left));
 }
 
 export default function DashboardPage() {
-  const [monthKey, setMonthKey] = useState<string>(currentMonthKey());
+  const currentMonth = currentMonthKey();
+  const [monthKey, setMonthKey] = useState<string>(currentMonth);
+  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [entries, setEntries] = useState<EntryDoc[]>([]);
+  const [trend, setTrend] = useState<Array<{ month: string; value: number }>>([]);
   const [state, setState] = useState<LoadState>("idle");
-  const [err, setErr] = useState<string>("");
-  const [items, setItems] = useState<EntryDoc[]>([]);
-  const [deletingId, setDeletingId] = useState<string>("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isMonthPending, startMonthTransition] = useTransition();
 
-  const [reloadKey, setReloadKey] = useState<number>(0);
-  const [isAddOpen, setIsAddOpen] = useState<boolean>(false);
-  const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
-
-  const [editingId, setEditingId] = useState<string>("");
-  const [editDate, setEditDate] = useState<string>("");
-  const [editCategory, setEditCategory] = useState<string>("");
-  const [editDesc, setEditDesc] = useState<string>("");
-  const [editAmount, setEditAmount] = useState<string>("");
-  const [savingEditId, setSavingEditId] = useState<string>("");
-  const [editErr, setEditErr] = useState<string>("");
-
-  const [variableExpensesTrend, setVariableExpensesTrend] = useState<{ month: string; value: number }[]>([]);
-
-  const months = useMemo(() => {
-    const out: string[] = [];
-    const now = new Date();
-    for (let i = 0; i < 18; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      out.push(`${y}-${m}`);
-    }
-    return out;
-  }, []);
-
-  async function ensureFixedRealizationsForMonth(targetMonthKey: string) {
-    const user = auth.currentUser;
-    if (!user?.email) return;
-
-    const householdId = householdIdFromEmail(user.email);
-    const uk = userKeyFromEmail(user.email);
-    if (uk !== "W") return;
-
-    const tmplSnap = await getDocs(query(collection(db, "fixed_templates"), where("householdId", "==", householdId)));
-    if (tmplSnap.empty) return;
-
-    const batch = writeBatch(db);
-    let writes = 0;
-    const createdAtBase = Date.now();
-
-    for (const t of tmplSnap.docs) {
-      const data: any = t.data();
-      if (data?.isActive === false) continue;
-
-      const chargeDayRaw = Number(data.chargeDay || 1);
-      const chargeDay = Math.max(1, Math.min(28, chargeDayRaw));
-
-      const dd = String(chargeDay).padStart(2, "0");
-      const dateISO = `${targetMonthKey}-${dd}`;
-
-      const docId = `fx__${targetMonthKey}__${uk}__${t.id}`;
-      const ref = doc(collection(db, "records"), docId);
-      const existing = await getDoc(ref);
-      if (existing.exists()) continue;
-
-      batch.set(ref, {
-        type: "expense",
-        subType: "fixed_realization",
-        monthKey: targetMonthKey,
-        date: dateISO,
-
-        category: String(data.category || "אחר"),
-        description: String(data.description || "").trim(),
-        amount: Number(data.amount || 0),
-
-        chargeDay,
-        templateId: t.id,
-        source: "fixed_template",
-
-        createdBy: user.email,
-        ownerUid: user.uid,
-        householdId,
-        userKey: uk,
-        createdAt: createdAtBase + writes,
-      });
-
-      writes += 1;
-    }
-
-    if (writes > 0) {
-      await batch.commit();
-    }
-  }
+  const monthOptions = useMemo(
+    () => mergeMonthOptions(listRecentMonthKeys(18, currentMonth, "desc"), availableMonths),
+    [availableMonths, currentMonth]
+  );
+  const trendMonths = useMemo(() => listRecentMonthKeys(6, monthKey, "asc"), [monthKey]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      setState("loading");
-      setErr("");
-      setDeletingId("");
-      setEditingId("");
-      setEditErr("");
-      setSavingEditId("");
-
+    async function loadMonthAvailability() {
       try {
-        await ensureFixedRealizationsForMonth(monthKey);
-
-        const user = auth.currentUser;
-        if (!user?.email) {
-          setItems([]);
-          setState("ready");
-          return;
-        }
-        const householdId = householdIdFromEmail(user.email);
-        const qByMonthKey = query(
-          collection(db, "records"),
-          where("householdId", "==", householdId),
-          where("monthKey", "==", monthKey)
-        );
-
-        const snapKey = await getDocs(qByMonthKey);
+        const months = await listAvailableMonthKeys();
         if (cancelled) return;
 
-        const arr: EntryDoc[] = snapKey.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<EntryDoc, "id">),
-        }));
-
-
-        const today = new Date();
-
-        const filtered = arr.filter((it: any) => {
-          if (!isFixedExpense(it)) return true;
-
-          const chargeDay = Number(it.chargeDay || 1);
-          const mk2 = it.monthKey || monthKey;
-
-          const [y, m] = String(mk2).split("-").map(Number);
-          const chargeDate = new Date(y, (m || 1) - 1, chargeDay);
-
-          return today >= chargeDate;
-        });
-
-        const normalizeDate = (v: any): string => {
-          if (!v) return "";
-          if (typeof v === "string") return v.trim().slice(0, 10);
-          if (typeof v?.toDate === "function") {
-            try {
-              return v.toDate().toISOString().slice(0, 10);
-            } catch {
-              return "";
-            }
-          }
-          if (v instanceof Date) return v.toISOString().slice(0, 10);
-          return "";
-        };
-
-        filtered.sort((a: any, b: any) => {
-          const ad = normalizeDate(a?.date);
-          const bd = normalizeDate(b?.date);
-
-          if (ad !== bd) return bd.localeCompare(ad);
-
-          const aT = toMillis(a?.updatedAt) || toMillis(a?.createdAt);
-          const bT = toMillis(b?.updatedAt) || toMillis(b?.createdAt);
-          return bT - aT;
-        });
-
-        setItems(filtered);
-        setState("ready");
-      } catch (e: any) {
-        if (cancelled) return;
-        setErr(e?.message || "שגיאה בטעינת נתונים.");
-        setState("error");
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [monthKey, reloadKey]);
-
-  // מגמת הוצאות משתנות ל-6 חודשים אחרונים
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadVariableExpensesTrend() {
-      try {
-        const now = new Date();
-        const last6Months: string[] = [];
-
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          last6Months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+        setAvailableMonths(months);
+        if (!months.length) return;
+        if (!months.includes(currentMonth) && monthKey === currentMonth) {
+          setMonthKey(months[0]);
         }
-
-        // איחוד תוצאות משתי שאילתות: month וגם monthKey (כדי לתפוס רשומות ישנות)
-        const user = auth.currentUser;
-        if (!user?.email) {
-          setVariableExpensesTrend([]);
-          return;
-        }
-        const householdId = householdIdFromEmail(user.email);
-        const qByMonthKey = query(
-          collection(db, "records"),
-          where("householdId", "==", householdId),
-          where("type", "==", "expense"),
-          where("monthKey", "in", last6Months)
-        );
-
-        const snap = await getDocs(qByMonthKey);
-        if (cancelled) return;
-
-        const docs: Array<Record<string, any>> = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Record<string, any>),
-        }));
-
-        const map = new Map<string, number>();
-        last6Months.forEach((m) => map.set(m, 0));
-
-        docs.forEach((data) => {
-          if (isFixedExpense(data)) return;
-
-          const mk = String(data.monthKey || "").trim();
-          if (!mk) return;
-          if (!map.has(mk)) return;
-
-          map.set(mk, (map.get(mk) || 0) + Number(data.amount || 0));
-        });
-
-        setVariableExpensesTrend(
-          last6Months.map((m) => ({
-            month: m,
-            value: map.get(m) || 0,
-          }))
-        );
       } catch {
-        setVariableExpensesTrend([]);
+        if (!cancelled) {
+          setAvailableMonths([]);
+        }
       }
     }
 
-    loadVariableExpensesTrend();
+    loadMonthAvailability();
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadToken, currentMonth, monthKey]);
 
+  useEffect(() => {
+    let cancelled = false;
 
-  const totals = useMemo(() => {
-    let income = 0;
-    let variable = 0;
-    let fixed = 0;
+    async function loadDashboard() {
+      setState("loading");
+      setErrorMessage("");
 
-    for (const it of items) {
-      if (it.type === "income") income += Number(it.amount || 0);
-      if (isVariableExpense(it)) variable += Number(it.amount || 0);
-      if (isFixedExpense(it)) fixed += Number(it.amount || 0);
-    }
+      try {
+        const [monthEntries, variableTrend] = await Promise.all([
+          listMonthEntries(monthKey),
+          listVariableExpenseTrend(trendMonths),
+        ]);
 
-    const balance = income - (variable + fixed);
-    return { income, variable, fixed, balance };
-  }, [items]);
-
-  const variableExpensesByCategory = useMemo(() => {
-    const m = new Map<string, number>();
-
-    items.forEach((it) => {
-      if (it.type === "expense" && !isFixedExpense(it)) {
-        const cat = it.category || "ללא קטגוריה";
-        const prev = m.get(cat) || 0;
-        m.set(cat, prev + Number(it.amount || 0));
+        if (cancelled) return;
+        setEntries(monthEntries);
+        setTrend(variableTrend);
+        setState("ready");
+      } catch (error: any) {
+        if (cancelled) return;
+        setEntries([]);
+        setTrend([]);
+        setState("error");
+        setErrorMessage(error?.message || "לא הצלחנו לטעון את הסקירה החודשית.");
       }
-    });
-
-    return Array.from(m.entries()).map(([category, value]) => ({
-      category,
-      value,
-    }));
-  }, [items]);
-
-  async function onDelete(id: string) {
-    if (!id) return;
-    setDeletingId(id);
-    setErr("");
-
-    try {
-      await deleteDoc(doc(db, "records", id));
-      setItems((prev) => prev.filter((x) => x.id !== id));
-    } catch (e: any) {
-      setErr(e?.message || "שגיאה במחיקה.");
-    } finally {
-      setDeletingId("");
-    }
-  }
-
-  function startEdit(it: EntryDoc) {
-    setEditingId(it.id || "");
-    setEditDate(it.date || "");
-    setEditCategory(it.category || "");
-    setEditDesc(it.description || "");
-    setEditAmount(String(it.amount ?? ""));
-    setEditErr("");
-  }
-
-  function cancelEdit() {
-    setEditingId("");
-    setEditErr("");
-    setSavingEditId("");
-  }
-
-  async function saveEdit(it: EntryDoc) {
-    if (!it.id) return;
-
-    const n = parseAmountInput(editAmount);
-    if (!n) {
-      setEditErr("נא להזין סכום תקין.");
-      return;
-    }
-    if (!editCategory) {
-      setEditErr("נא לבחור קטגוריה.");
-      return;
-    }
-    if (!editDate) {
-      setEditErr("נא לבחור תאריך.");
-      return;
     }
 
-    setSavingEditId(it.id);
-    setEditErr("");
+    loadDashboard();
+    return () => {
+      cancelled = true;
+    };
+  }, [monthKey, reloadToken, trendMonths]);
 
-    const mk = monthKeyFromISO(editDate);
+  const summary = useMemo(() => summarizeMonthlyEntries(entries, monthKey), [entries, monthKey]);
+  const insights = useMemo(() => buildDashboardInsights(summary), [summary]);
+  const variableByCategory = useMemo(() => groupVariableExpensesByCategory(entries).slice(0, 6), [entries]);
+  const recentActivity = useMemo(() => summary.recentActivity.slice(0, 6), [summary.recentActivity]);
 
-    try {
-      const ref = doc(db, "records", it.id);
-      await updateDoc(ref, {
-        date: editDate,
-        monthKey: mk,
-        category: editCategory,
-        description: editDesc,
-        amount: n,
-      });
-
-      setItems((prev) =>
-        prev.map((x) =>
-          x.id === it.id
-            ? {
-                ...x,
-        date: editDate,
-                monthKey: mk,
-        category: editCategory,
-                description: editDesc,
-                amount: n,
-              }
-            : x
-        )
-      );
-
-      cancelEdit();
-    } catch (e: any) {
-      setEditErr(e?.message || "שגיאה בשמירה.");
-    } finally {
-      setSavingEditId("");
-    }
-  }
+  const progressPercent = Math.round(summary.progress.progress * 100);
+  const expenseLoadPercent = summary.expenseLoad === null ? null : Math.round(summary.expenseLoad * 100);
+  const balanceTone = summary.totals.balance >= 0 ? "positive" : "negative";
 
   return (
-    <AppLayout title="דשבורד">
-      <button
-        className="btn"
-        type="button"
-        onClick={() => setIsImportOpen(true)}
-        disabled={state === "loading"}
-        style={{
-          position: "fixed",
-          right: 14,
-          bottom: 96,
-          zIndex: 90,
-          boxShadow: "0 14px 34px rgba(2,6,23,0.28)",
-          background: "linear-gradient(135deg, rgba(168,85,247,0.98), rgba(37,99,235,0.95))",
-        }}
-      >
-        📁 הוספת קובץ
-      </button>
+    <AppLayout
+      title="סקירה תפעולית"
+      subtitle="מבנה עבודה של מרכז בקרה: חודש נבחר, תובנות, התחייבויות ותנועות אחרונות."
+    >
+      <div className="page-stack">
+        <section className="hero-panel">
+          <div className="hero-copy">
+            <div className="eyebrow">Monthly cockpit</div>
+            <h2 className="hero-title">{formatMonthKey(monthKey)}</h2>
+            <p className="hero-text">
+              תמונת מצב אחת שמרכזת איזון חודשי, קצב הוצאות, התחייבויות קבועות ופעולות מהירות להמשך עבודה.
+            </p>
 
-      <div className="container">
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-          <div className="row" style={{ gap: 10, alignItems: "center" }}>
-            <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
-              הוספת תנועה
-            </button>
-            <button
-              className="btn"
-              onClick={() => setIsImportOpen(true)}
-              disabled={state === "loading"}
-              style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.95), rgba(37,99,235,0.92))" }}
-            >
-              📁 הוספת קובץ
-            </button>
-          </div>
-
-          <div className="row" style={{ gap: 10, alignItems: "center" }}>
-            <div className="muted" style={{ fontSize: 12 }}>
-              חודש
+            <div className="toolbar-actions">
+              <Link className="btn" to="/add">
+                תנועה ידנית
+              </Link>
+              <button className="btn secondary" type="button" onClick={() => setIsImportOpen(true)}>
+                ייבוא קובץ
+              </button>
+              <Link className="btn secondary" to="/transactions">
+                לכל היומן
+              </Link>
             </div>
-            <select className="input" style={{ width: 160 }} value={monthKey} onChange={(e) => setMonthKey(e.target.value)}>
-              {months.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
           </div>
-        </div>
 
-        <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-          תצוגה חודשית. הכרטיסיות והגרף מתעדכנים אוטומטית לפי החודש.
-        </div>
-
-        <div
-          className="card"
-          style={{
-            marginTop: 12,
-            padding: 10,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 10,
-          }}
-        >
-          <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
-            ➕ הוספת תנועה ידנית
-          </button>
-          <button
-            className="btn"
-            onClick={() => setIsImportOpen(true)}
-            disabled={state === "loading"}
-            style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.95), rgba(37,99,235,0.92))" }}
-          >
-            📁 הוספת קובץ וניתוחו
-          </button>
-        </div>
-
-        <div style={{ height: 14 }} />
-
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <div style={{ marginBottom: 14 }}>
-            <div
-              className="kpi-card kpi-balance"
-              style={{
-                borderLeft:
-                  totals.balance > 0
-                    ? "6px solid rgba(34,197,94,0.95)"
-                    : totals.balance < 0
-                    ? "6px solid rgba(239,68,68,0.95)"
-                    : undefined,
-              }}
-            >
-              <div className="kpi-top">
-                <div className="kpi-title">יתרה חודשית</div>
-                <div className="kpi-icon">✓</div>
-              </div>
-
-              <div
-                className="kpi-value"
-                style={{
-                  color:
-                    totals.balance > 0
-                      ? "rgba(34,197,94,0.95)"
-                      : totals.balance < 0
-                      ? "rgba(239,68,68,0.95)"
-                      : undefined,
-                }}
+          <div className="hero-side card-shell">
+            <div className="field-stack">
+              <label>חודש ניתוח</label>
+              <select
+                className="input"
+                value={monthKey}
+                onChange={(event) => startMonthTransition(() => setMonthKey(event.target.value))}
               >
-                {formatILS(totals.balance)}
-              </div>
+                {monthOptions.map((optionMonthKey: string) => (
+                  <option key={optionMonthKey} value={optionMonthKey}>
+                    {formatMonthKey(optionMonthKey)}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              <div className="kpi-sub muted">הכנסות פחות הוצאות</div>
+            <div className={`hero-balance ${balanceTone}`}>
+              <div className="hero-balance-label">יתרה חודשית</div>
+              <div className="hero-balance-value">{formatILS(summary.totals.balance)}</div>
+              <div className="hero-balance-sub">
+                {summary.totals.balance >= 0
+                  ? "היתרה מחושבת מתוך ההכנסות פחות ההוצאות הקבועות ופחות ההוצאות המשתנות שנשמרו ב-Firebase לחודש הזה."
+                  : "היתרה מחושבת מתוך הנתונים השמורים ב-Firebase לחודש הזה, וכרגע ההוצאות גבוהות מההכנסות."}
+              </div>
+            </div>
+
+            <div className="mini-metrics">
+              <div className="mini-metric">
+                <span className="mini-label">התקדמות חודש</span>
+                <strong>{progressPercent}%</strong>
+                <span className="mini-sub">{summary.progress.remainingDays} ימים נותרו</span>
+              </div>
+              <div className="mini-metric">
+                <span className="mini-label">תנועות רשומות</span>
+                <strong>{summary.counts.all}</strong>
+                <span className="mini-sub">
+                  {summary.counts.expense} הוצאות, {summary.counts.income} הכנסות
+                </span>
+              </div>
+              <div className="mini-metric">
+                <span className="mini-label">קצב הוצאה</span>
+                <strong>{expenseLoadPercent === null ? "--" : `${expenseLoadPercent}%`}</strong>
+                <span className="mini-sub">מול ההכנסות שכבר נרשמו</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {availableMonths.length > 0 && !availableMonths.includes(currentMonth) ? (
+          <div className="note-banner">החודש הנוכחי עדיין ללא תנועות. מוצג אוטומטית החודש האחרון שבו קיימים נתונים.</div>
+        ) : null}
+        {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
+        {state === "loading" || isMonthPending ? <div className="note-banner">טוען את מרכז הבקרה של החודש...</div> : null}
+
+        <section className="summary-grid">
+          <article className={`summary-card ${balanceTone}`}>
+            <div className="summary-label">יתרה חודשית</div>
+            <div className="summary-value">{formatILS(summary.totals.balance)}</div>
+            <div className="summary-hint">הכנסות פחות הוצאות קבועות ופחות הוצאות משתנות</div>
+          </article>
+
+          <article className="summary-card neutral">
+            <div className="summary-label">הוצאות משתנות</div>
+            <div className="summary-value">{formatILS(summary.totals.variable)}</div>
+            <div className="summary-hint">סך ההוצאות המשתנות שנרשמו בחודש הזה</div>
+          </article>
+
+          <article className="summary-card neutral">
+            <div className="summary-label">קבועות לחודש</div>
+            <div className="summary-value">{formatILS(summary.totals.fixed)}</div>
+            <div className="summary-hint">מהן {formatILS(summary.totals.scheduledFixed)} עדיין מתוזמנות</div>
+          </article>
+
+          <article className="summary-card neutral">
+            <div className="summary-label">הכנסות</div>
+            <div className="summary-value">{formatILS(summary.totals.income)}</div>
+            <div className="summary-hint">רק מה שכבר נרשם במערכת</div>
+          </article>
+        </section>
+
+        <section className="section-block">
+          <div className="section-header">
+            <div>
+              <div className="section-title">סיגנלים תפעוליים</div>
+              <div className="section-subtitle">הנקודות שהכי חשוב לראות בתחילת העבודה על החודש.</div>
             </div>
           </div>
 
-          <div className="kpi-grid">
-            <div className="kpi-card kpi-variable">
-              <div className="kpi-top">
-                <div className="kpi-title">הוצאות משתנות</div>
-                <div className="kpi-icon">≈</div>
-              </div>
-              <div className="kpi-value">{formatILS(totals.variable)}</div>
-              <div className="kpi-sub muted">קניות, דלק, בילויים</div>
-            </div>
-
-            <div className="kpi-card kpi-fixed">
-              <div className="kpi-top">
-                <div className="kpi-title">הוצאות קבועות</div>
-                <div className="kpi-icon">○</div>
-              </div>
-              <div className="kpi-value">{formatILS(totals.fixed)}</div>
-              <div className="kpi-sub muted">תשלומים חוזרים וקבועים</div>
-            </div>
-
-            <div className="kpi-card kpi-income">
-              <div className="kpi-top">
-                <div className="kpi-title">הכנסות</div>
-                <div className="kpi-icon">+</div>
-              </div>
-              <div className="kpi-value">{formatILS(totals.income)}</div>
-              <div className="kpi-sub muted">סך כל ההכנסות בחודש</div>
-            </div>
+          <div className="insight-grid">
+            {insights.map((insight) => (
+              <article key={insight.title} className={`insight-card ${insight.tone}`}>
+                <div className="summary-label">{insight.title}</div>
+                <div className="summary-value small">{insight.value}</div>
+                <div className="summary-hint">{insight.detail}</div>
+              </article>
+            ))}
           </div>
-        </div>
+        </section>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
-            gap: 24,
-            marginTop: 24,
-            marginBottom: 24,
-          }}
-        >
-          <div
-            className="card"
-            style={{
-              background: "linear-gradient(180deg, #ffffff, #f8fafc)",
-              borderRadius: 20,
-              boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
-            }}
-          >
-            <h3 style={{ marginBottom: 12 }}>הוצאות משתנות לפי קטגוריות</h3>
+        <section className="chart-grid">
+          <article className="card chart-card">
+            <div className="section-header compact">
+              <div>
+                <div className="section-title">פיזור הוצאות משתנות</div>
+                <div className="section-subtitle">זיהוי מה מושך את רוב ההוצאה החופשית.</div>
+              </div>
+            </div>
 
-            {variableExpensesByCategory.length === 0 ? (
-              <div className="muted">אין נתונים להצגה</div>
-            ) : (
-              <div style={{ filter: "drop-shadow(0px 6px 10px rgba(0,0,0,0.25))" }}>
-                <div style={{ filter: "drop-shadow(0 18px 28px rgba(0,0,0,0.28))" }}>
+            {variableByCategory.length ? (
+              <>
+                <div className="chart-box">
                   <Doughnut
                     data={{
-                      labels: variableExpensesByCategory.map((d) => d.category),
+                      labels: variableByCategory.map((item) => item.category),
                       datasets: [
                         {
-                          data: variableExpensesByCategory.map((d) => d.value),
-                          backgroundColor: [
-                            "#dc2626",
-                            "#ea580c",
-                            "#ca8a04",
-                            "#16a34a",
-                            "#0891b2",
-                            "#2563eb",
-                            "#7c3aed",
-                            "#be185d",
-                          ],
+                          data: variableByCategory.map((item) => item.value),
+                          backgroundColor: chartPalette,
                           borderWidth: 0,
-                          hoverOffset: 18,
+                          hoverOffset: 12,
                         },
                       ],
                     }}
                     options={{
-                      cutout: "48%",
-                      rotation: -40,
-                      animation: {
-                        animateRotate: true,
-                        duration: 900,
-                      },
+                      cutout: "62%",
                       plugins: {
-                        legend: {
-                          position: "bottom",
-                          labels: {
-                            padding: 18,
-                          },
-                        },
+                        legend: { position: "bottom" },
                         tooltip: {
                           callbacks: {
-                            label: (ctx) => {
-                              const value = ctx.raw as number;
-                              return `${ctx.label}: ${formatILS(value)}`;
-                            },
+                            label: (context) => `${context.label}: ${formatILS(context.raw as number)}`,
                           },
                         },
                       },
                     }}
                   />
                 </div>
-              </div>
-            )}
-          </div>
 
-          <div
-            className="card"
-            style={{
-              background: "linear-gradient(180deg, #ffffff, #f8fafc)",
-              borderRadius: 20,
-              boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
-            }}
-          >
-            <h3 style={{ marginBottom: 12 }}>הוצאות משתנות - השוואה חודשית</h3>
-
-            {variableExpensesTrend.length === 0 ? (
-              <div className="muted">אין נתונים להצגה</div>
-            ) : (
-              <Bar
-                data={{
-                  labels: variableExpensesTrend.map((d) => d.month),
-                  datasets: [
-                    {
-                      data: variableExpensesTrend.map((d) => d.value),
-                      backgroundColor: "rgba(239,68,68,0.85)",
-                      borderRadius: 14,
-                      borderSkipped: false,
-                    },
-                  ],
-                }}
-                options={{
-                  responsive: true,
-                  plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                      callbacks: {
-                        label: (ctx) => formatILS(ctx.raw as number),
-                      },
-                    },
-                  },
-                  elements: {
-                    bar: { borderWidth: 0 },
-                  },
-                  scales: {
-                    x: {
-                      ticks: {
-                        autoSkip: false,
-                        maxRotation: 0,
-                        minRotation: 0,
-                      },
-                    },
-                    y: {
-                      ticks: {
-                        callback: (v) => formatILS(Number(v)),
-                      },
-                    },
-                  },
-                }}
-              />
-            )}
-          </div>
-        </div>
-
-        <div style={{ height: 18 }} />
-
-        <div
-          className="card"
-          style={{
-            background: "linear-gradient(180deg, #ffffff, #f8fafc)",
-            borderRadius: 20,
-            boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
-          }}
-        >
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontWeight: 900 }}>תנועות</div>
-            {err ? <div className="error">{err}</div> : null}
-          </div>
-
-          <div style={{ height: 10 }} />
-
-          {state === "loading" ? <div className="muted">טוען...</div> : null}
-
-          {state !== "loading" && items.length === 0 ? <div className="muted">אין נתונים לחודש הזה.</div> : null}
-
-          <div style={{ display: "grid", gap: 10 }}>
-            {items.map((it) => {
-              const isEditing = editingId === it.id;
-
-              return (
-                <div
-                  key={it.id}
-                  className="txn-row"
-                  style={{
-                    borderLeft:
-                      it.type === "income"
-                        ? "4px solid rgba(34,197,94,0.95)"
-                        : isFixedExpense(it)
-                        ? "4px solid rgba(168,85,247,0.95)"
-                        : "4px solid rgba(239,68,68,0.95)",
-                  }}
-                >
-                  {!isEditing ? (
-                    <>
-                      <div
-                        className="row"
-                        style={{
-                          justifyContent: "space-between",
-                          alignItems: "flex-start",
-                          gap: 12,
-                        }}
-                      >
-                        <div>
-                          <div
-                            style={{
-                              fontWeight: 900,
-                              color:
-                                it.type === "income"
-                                  ? "rgba(34,197,94,0.95)"
-                                  : isFixedExpense(it)
-                                  ? "rgba(168,85,247,0.95)"
-                                  : "rgba(239,68,68,0.95)",
-                            }}
-                          >
-                            {it.category || "ללא קטגוריה"} - {formatILS(Number(it.amount || 0))}
-                          </div>
-
-                          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                            {typeLabel(it)}
-                            {isFixedExpense(it) ? " קבועה" : it.type === "expense" ? " משתנה" : ""}
-                            {it.description ? ` ֲ· ${it.description}` : ""}
-                          </div>
+                <div className="category-bars">
+                  {variableByCategory.slice(0, 4).map((item) => {
+                    const width = summary.totals.variable > 0 ? (item.value / summary.totals.variable) * 100 : 0;
+                    return (
+                      <div key={item.category} className="category-row">
+                        <div className="category-meta">
+                          <span>{item.category}</span>
+                          <strong>{formatILS(item.value)}</strong>
                         </div>
-
-                        <div className="row" style={{ gap: 6 }}>
-                          <button className="btn secondary" onClick={() => startEdit(it)}>
-                            ערוך
-                          </button>
-                          <button className="btn danger" onClick={() => onDelete(it.id || "")} disabled={deletingId === it.id}>
-                            {deletingId === it.id ? "מוחק..." : "מחיקה"}
-                          </button>
+                        <div className="category-track">
+                          <div className="category-fill" style={{ width: `${Math.max(width, 8)}%` }} />
                         </div>
                       </div>
-
-                      <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                        {it.date}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        <div>
-                          <label>תאריך</label>
-                          <input className="input" type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
-                        </div>
-
-                        <div>
-                          <label>קטגוריה</label>
-                          <input className="input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)} />
-                        </div>
-
-                        <div>
-                          <label>סכום</label>
-                          <input className="input" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
-                        </div>
-
-                        <div>
-                          <label>תיאור</label>
-                          <input className="input" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
-                        </div>
-                      </div>
-
-                      {editErr ? (
-                        <div className="error" style={{ marginTop: 8 }}>
-                          {editErr}
-                        </div>
-                      ) : null}
-
-                      <div className="row" style={{ gap: 8, marginTop: 10 }}>
-                        <button className="btn" onClick={() => saveEdit(it)} disabled={savingEditId === it.id}>
-                          {savingEditId === it.id ? "שומר..." : "שמור"}
-                        </button>
-                        <button className="btn secondary" onClick={cancelEdit}>
-                          ביטול
-                        </button>
-                      </div>
-                    </>
-                  )}
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </>
+            ) : (
+              <div className="empty-panel">עדיין אין הוצאות משתנות לחודש הזה.</div>
+            )}
+          </article>
+
+          <article className="card chart-card">
+            <div className="section-header compact">
+              <div>
+                <div className="section-title">מגמת הוצאות משתנות</div>
+                <div className="section-subtitle">תצוגת שישה חודשים כדי לראות אם הקצב יציב או מטפס.</div>
+              </div>
+            </div>
+
+            {trend.length ? (
+              <div className="chart-box tall">
+                <Bar
+                  data={{
+                    labels: trend.map((point) => point.month),
+                    datasets: [
+                      {
+                        data: trend.map((point) => point.value),
+                        backgroundColor: "rgba(15,118,110,0.85)",
+                        borderRadius: 16,
+                        borderSkipped: false,
+                      },
+                    ],
+                  }}
+                  options={{
+                    responsive: true,
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        callbacks: {
+                          label: (context) => formatILS(context.raw as number),
+                        },
+                      },
+                    },
+                    scales: {
+                      y: {
+                        ticks: {
+                          callback: (value) => formatILS(Number(value)),
+                        },
+                      },
+                    },
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="empty-panel">אין מספיק נתונים היסטוריים להצגת מגמה.</div>
+            )}
+          </article>
+        </section>
+
+        <section className="card">
+          <div className="section-header">
+            <div>
+              <div className="section-title">פעילות אחרונה</div>
+              <div className="section-subtitle">השורות האחרונות שנכנסו או עודכנו בחודש הנבחר.</div>
+            </div>
+            <Link className="btn secondary" to="/transactions">
+              יומן מלא
+            </Link>
           </div>
 
-          <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-            הערה: ״הוצאות קבועות״ מחושבות רק אם קיימות תנועות עם subType קבוע.
-          </div>
-        </div>
+          {!recentActivity.length ? (
+            <div className="empty-panel">אין עדיין תנועות לחודש הזה. אפשר להתחיל מקליטה ידנית או מייבוא קובץ.</div>
+          ) : (
+            <div className="activity-list">
+              {recentActivity.map((entry) => {
+                const tone = getEntryTone(entry);
+                const installmentLabel = getInstallmentLabel(entry);
+                const lifecycle = getEntryLifecycle(entry, todayISO());
+
+                return (
+                  <article key={entry.id} className={`activity-row ${tone}`}>
+                    <div className="activity-main">
+                      <div>
+                        <div className="activity-title">{entry.category || "ללא קטגוריה"}</div>
+                        <div className="activity-subtitle">{entry.description || getEntryTypeLabel(entry)}</div>
+                      </div>
+
+                      <div className={`activity-amount ${tone}`}>
+                        {entry.type === "income" ? "+" : "-"}
+                        {formatILS(Number(entry.amount || 0))}
+                      </div>
+                    </div>
+
+                    <div className="activity-meta-row">
+                      <div className="activity-date">{entry.date}</div>
+                      <div className="badge-row">
+                        <span className={`status-pill ${tone}`}>{getEntryTypeLabel(entry)}</span>
+                        {lifecycle === "scheduled" ? <span className="status-pill warn">מתוזמן</span> : null}
+                        {installmentLabel ? <span className="status-pill neutral">תשלום {installmentLabel}</span> : null}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
-
-      <AddEntryModal
-        open={isAddOpen}
-        onClose={() => setIsAddOpen(false)}
-        monthKey={monthKey}
-        defaultDateISO={new Date().toISOString().slice(0, 10)}
-        onSaved={() => setReloadKey((x) => x + 1)}
-      />
 
       <ImportEntriesModal
         open={isImportOpen}
         onClose={() => setIsImportOpen(false)}
         monthKey={monthKey}
-        defaultDateISO={new Date().toISOString().slice(0, 10)}
-        onSaved={() => setReloadKey((x) => x + 1)}
+        defaultDateISO={todayISO()}
+        onSaved={() => setReloadToken((value) => value + 1)}
       />
     </AppLayout>
   );

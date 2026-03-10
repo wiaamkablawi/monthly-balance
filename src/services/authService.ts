@@ -7,11 +7,12 @@ import {
 } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "./firebase";
 
-const ALLOWED_EMAILS = new Set([
+export const ALLOWED_EMAIL_LIST: readonly string[] = [
   "k.wiaam@gmail.com",
   "boshra.kablawi@gmail.com",
-]);
+];
 
+const ALLOWED_EMAILS = new Set<string>(ALLOWED_EMAIL_LIST);
 const HOUSEHOLD_ID = "household_wb";
 
 const googleProvider = new GoogleAuthProvider();

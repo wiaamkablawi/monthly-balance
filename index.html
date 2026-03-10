@@ -6,12 +6,41 @@
     <meta name="theme-color" content="#0f172a" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.json" />
-    <title>מערכת הוצאות חודשית</title>
+    <title>&#1502;&#1506;&#1512;&#1499;&#1514; &#1492;&#1493;&#1510;&#1488;&#1493;&#1514; &#1495;&#1493;&#1491;&#1513;&#1497;&#1514;</title>
+    <script>
+      window.addEventListener(
+        "error",
+        function (event) {
+          var target = event.target;
+          var failedEntry =
+            target &&
+            target.tagName === "SCRIPT" &&
+            typeof target.src === "string" &&
+            target.src.indexOf("/src/main.tsx") !== -1;
+
+          if (!failedEntry) {
+            return;
+          }
+
+          var root = document.getElementById("root");
+          if (!root) {
+            return;
+          }
+
+          root.innerHTML =
+            '<div style="max-width:720px;margin:48px auto;padding:24px;border-radius:16px;background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif;line-height:1.6">' +
+            "<h1 style=\"margin:0 0 12px;font-size:24px\">The app did not start.</h1>" +
+            "<p style=\"margin:0 0 12px\">This project uses Vite. Do not open <code>index.html</code> with Live Server or a plain static server.</p>" +
+            "<p style=\"margin:0 0 12px\">Run <code>npm run dev</code> in <code>monthly-balance</code> and open <code>http://127.0.0.1:5173</code>.</p>" +
+            "<p style=\"margin:0\">If you need a static build, run <code>npm run build</code> and serve the <code>dist</code> folder.</p>" +
+            "</div>";
+        },
+        true
+      );
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
-
