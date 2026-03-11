@@ -6,16 +6,11 @@ import { auth } from "../services/firebase";
 import { db } from "../services/firebaseDb";
 import type { EntryDoc } from "../types/models";
 import { householdIdFromEmail } from "../services/authService";
-import { getAvailableMonthKeys } from "../services/entriesService";
+import { getAvailableMonthKeys, getEntriesByMonth } from "../services/entriesService";
 import {
-  collection,
   deleteDoc,
   doc,
-  getDocs,
-
-  query,
   updateDoc,
-  where,
 } from "firebase/firestore";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -85,19 +80,8 @@ export default function TransactionsPage() {
         }
 
         const householdId = householdIdFromEmail(user.email);
-        const qByMonthKey = query(
-          collection(db, "records"),
-          where("householdId", "==", householdId),
-          where("monthKey", "==", monthKey)
-        );
-
-        const snap = await getDocs(qByMonthKey);
+        const list = await getEntriesByMonth(householdId, monthKey);
         if (cancelled) return;
-
-        const list: EntryDoc[] = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<EntryDoc, "id">),
-        }));
 
         list.sort((a, b) => {
           const aT = Number(a.updatedAt || a.createdAt || 0);
@@ -395,5 +379,3 @@ export default function TransactionsPage() {
     </AppLayout>
   );
 }
-
-
