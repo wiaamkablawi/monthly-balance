@@ -52,10 +52,6 @@ export function isAllowedEmail(email?: string | null): boolean {
   return ALLOWED_EMAILS.has((email || "").toLowerCase());
 }
 
-export function householdEmails(): string[] {
-  return Array.from(ALLOWED_EMAILS);
-}
-
 export function householdIdFromEmail(email?: string | null): string {
   return isAllowedEmail(email) ? HOUSEHOLD_ID : "forbidden";
 }
