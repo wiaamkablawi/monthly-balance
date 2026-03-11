@@ -1324,7 +1324,7 @@ export default function DashboardPage() {
                 {formatILS(totals.balance)}
               </div>
 
-              <div className="kpi-sub muted">הכנסות פחות הוצאות</div>
+              <div className="kpi-sub muted">הכנסות פחות הוצאות קבועות והוצאות משתנות</div>
             </div>
           </div>
 
@@ -1644,4 +1644,3 @@ export default function DashboardPage() {
     </AppLayout>
   );
 }
-
