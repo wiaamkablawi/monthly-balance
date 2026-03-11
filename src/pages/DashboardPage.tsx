@@ -1329,13 +1329,13 @@ export default function DashboardPage() {
           </div>
 
           <div className="kpi-grid">
-            <div className="kpi-card kpi-variable">
+            <div className="kpi-card kpi-income">
               <div className="kpi-top">
-                <div className="kpi-title">הוצאות משתנות</div>
-                <div className="kpi-icon">≈</div>
+                <div className="kpi-title">הכנסות</div>
+                <div className="kpi-icon">+</div>
               </div>
-              <div className="kpi-value">{formatILS(totals.variable)}</div>
-              <div className="kpi-sub muted">קניות, דלק, בילויים</div>
+              <div className="kpi-value">{formatILS(totals.income)}</div>
+              <div className="kpi-sub muted">השלב הראשון בחישוב היתרה החודשית</div>
             </div>
 
             <div className="kpi-card kpi-fixed">
@@ -1344,16 +1344,16 @@ export default function DashboardPage() {
                 <div className="kpi-icon">○</div>
               </div>
               <div className="kpi-value">{formatILS(totals.fixed)}</div>
-              <div className="kpi-sub muted">תשלומים חוזרים וקבועים</div>
+              <div className="kpi-sub muted">השלב השני: הפחתה של תשלומים חוזרים</div>
             </div>
 
-            <div className="kpi-card kpi-income">
+            <div className="kpi-card kpi-variable">
               <div className="kpi-top">
-                <div className="kpi-title">הכנסות</div>
-                <div className="kpi-icon">+</div>
+                <div className="kpi-title">הוצאות משתנות</div>
+                <div className="kpi-icon">≈</div>
               </div>
-              <div className="kpi-value">{formatILS(totals.income)}</div>
-              <div className="kpi-sub muted">סך כל ההכנסות בחודש</div>
+              <div className="kpi-value">{formatILS(totals.variable)}</div>
+              <div className="kpi-sub muted">השלב השלישי: הפחתה של הוצאות משתנות</div>
             </div>
           </div>
         </div>
