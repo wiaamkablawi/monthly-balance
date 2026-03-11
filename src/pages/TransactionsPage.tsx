@@ -12,15 +12,19 @@ import {
 } from "../domain/entries";
 import { deleteEntryRecord, listAvailableMonthKeys, listMonthEntries, updateEntryRecord } from "../services/recordsService";
 import type { EntryDoc } from "../types/models";
-import { currentMonthKey, formatMonthKey, listRecentMonthKeys, todayISO } from "../utils/dates";
-import { formatILS } from "../utils/money";
+import { householdIdFromEmail } from "../services/authService";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
-type FilterKey = "all" | "income" | "variable" | "fixed" | "scheduled";
-
-function mergeMonthOptions(primary: string[], secondary: string[]): string[] {
-  return Array.from(new Set([...primary, ...secondary])).sort((left, right) => right.localeCompare(left));
-}
 
 export default function TransactionsPage() {
   const currentMonth = currentMonthKey();
@@ -28,49 +32,20 @@ export default function TransactionsPage() {
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [items, setItems] = useState<EntryDoc[]>([]);
   const [state, setState] = useState<LoadState>("idle");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [search, setSearch] = useState("");
-  const [filterKey, setFilterKey] = useState<FilterKey>("all");
-  const [editingId, setEditingId] = useState("");
+  const [err, setErr] = useState("");
+  const [items, setItems] = useState<EntryDoc[]>([]);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState("");
   const [editCategory, setEditCategory] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editAmount, setEditAmount] = useState("");
-  const [editError, setEditError] = useState("");
-  const [savingEditId, setSavingEditId] = useState("");
-  const [deletingId, setDeletingId] = useState("");
-  const [isMonthPending, startMonthTransition] = useTransition();
 
-  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
-  const monthOptions = useMemo(
-    () => mergeMonthOptions(listRecentMonthKeys(18, currentMonth, "desc"), availableMonths),
-    [availableMonths, currentMonth]
-  );
+  const openSwipeId = useRef<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadMonthAvailability() {
-      try {
-        const months = await listAvailableMonthKeys();
-        if (cancelled) return;
-
-        setAvailableMonths(months);
-        if (!months.length) return;
-        if (!months.includes(currentMonth) && monthKey === currentMonth) {
-          setMonthKey(months[0]);
-        }
-      } catch {
-        if (!cancelled) setAvailableMonths([]);
-      }
-    }
-
-    loadMonthAvailability();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentMonth, monthKey]);
-
+  /* =========================
+     Load data
+  ========================= */
   useEffect(() => {
     let cancelled = false;
 
@@ -98,6 +73,13 @@ export default function TransactionsPage() {
       cancelled = true;
     };
   }, [monthKey]);
+
+  useEffect(() => {
+    if (!monthOptions.length) return;
+    if (!monthOptions.includes(monthKey)) {
+      setMonthKey(monthOptions[0]);
+    }
+  }, [monthOptions, monthKey]);
 
   const monthSummary = useMemo(() => summarizeMonthlyEntries(items, monthKey), [items, monthKey]);
 
@@ -142,54 +124,70 @@ export default function TransactionsPage() {
     setSavingEditId("");
   }
 
-  async function saveEdit(entry: EntryDoc) {
-    const amount = parseAmountInput(editAmount);
-    if (!amount) {
-      setEditError("יש להזין סכום חיובי ותקין.");
-      return;
+  async function saveEdit(it: EntryDoc) {
+    const mk = monthKeyFromISO(editDate);
+
+    await updateDoc(doc(db, "records", it.id), {
+      date: editDate,
+      monthKey: mk,
+      category: editCategory,
+      description: editDescription,
+      amount: Number(editAmount),
+      updatedAt: Date.now(),
+    });
+
+    setEditingId(null);
+  }
+
+  async function onDelete(it: EntryDoc) {
+    if (!window.confirm("למחוק את התנועה?")) return;
+    await deleteDoc(doc(db, "records", it.id));
+    setItems((prev) => prev.filter((x) => x.id !== it.id));
+  }
+
+  /* =========================
+     Swipe logic – FIXED
+  ========================= */
+ function onPointerDown(e: React.PointerEvent, id: string) {
+  const row = (e.currentTarget as HTMLElement).closest(
+    ".swipe-row"
+  ) as HTMLElement | null;
+  if (!row) return;
+
+  const contentEl = row.querySelector(".swipe-content");
+  if (!(contentEl instanceof HTMLElement)) return;
+
+  const content = contentEl; // מעכשיו non-null ו-type-safe
+
+  // סגירת swipe פתוח קודם
+  if (openSwipeId.current && openSwipeId.current !== id) {
+    const prev = document.querySelector(
+      `[data-swipe-id="${openSwipeId.current}"] .swipe-content`
+    );
+    if (prev instanceof HTMLElement) {
+      prev.style.transform = "";
     }
-    if (!editCategory.trim()) {
-      setEditError("יש לבחור קטגוריה.");
-      return;
-    }
-    if (!editDate) {
-      setEditError("יש לבחור תאריך.");
-      return;
+    openSwipeId.current = null;
+  }
+
+  let startX = e.clientX;
+  let currentX = 0;
+  const maxSwipe = -140;
+  let moved = false;
+
+  function move(ev: PointerEvent) {
+    currentX = ev.clientX - startX;
+
+    if (Math.abs(currentX) > 6) {
+      moved = true;
+      ev.preventDefault();
     }
 
-    setSavingEditId(entry.id);
-    setEditError("");
-
-    try {
-      await updateEntryRecord(entry.id, {
-        date: editDate,
-        category: editCategory.trim(),
-        description: editDescription.trim(),
-        amount,
-      });
-
-      setItems((currentItems) =>
-        sortEntriesByDisplayDate(
-          currentItems.map((currentEntry) =>
-            currentEntry.id === entry.id
-              ? {
-                  ...currentEntry,
-                  date: editDate,
-                  category: editCategory.trim(),
-                  description: editDescription.trim(),
-                  amount,
-                  monthKey: editDate.slice(0, 7),
-                  updatedAt: Date.now(),
-                }
-              : currentEntry
-          )
-        )
-      );
-      cancelEdit();
-    } catch (error: any) {
-      setEditError(error?.message || "אירעה שגיאה בשמירת העדכון.");
-    } finally {
-      setSavingEditId("");
+    if (currentX < 0) {
+      content.style.transform = `translateX(${Math.max(
+        currentX,
+        maxSwipe
+      )}px)`;
     }
   }
 
@@ -209,37 +207,28 @@ export default function TransactionsPage() {
   }
 
   return (
-    <AppLayout
-      title="יומן תנועות"
-      subtitle="מסך ledger לעבודה שוטפת: חיפוש, סינון, עריכה ומחיקה באותו רצף עבודה."
-    >
-      <div className="page-stack">
-        <section className="card toolbar-card">
-          <div className="section-header compact">
-            <div>
-              <div className="section-title">עבודה על חודש</div>
-              <div className="section-subtitle">בחר חודש, סנן לפי סוג תנועה וחפש תיאור או קטגוריה.</div>
-            </div>
-            <Link className="btn" to="/add">
-              קליטה חדשה
-            </Link>
-          </div>
-
-          <div className="filters-grid">
-            <div className="field-stack">
-              <label>חודש</label>
-              <select
-                className="input"
-                value={monthKey}
-                onChange={(event) => startMonthTransition(() => setMonthKey(event.target.value))}
-              >
-                {monthOptions.map((optionMonthKey: string) => (
-                  <option key={optionMonthKey} value={optionMonthKey}>
-                    {formatMonthKey(optionMonthKey)}
-                  </option>
-                ))}
-              </select>
-            </div>
+    <AppLayout title="תנועות">
+      <div className="card">
+        <label>חודש</label>
+        <select
+          className="input"
+          value={monthKey}
+          onChange={(e) => setMonthKey(e.target.value)}
+        >
+          {Array.from({ length: 24 }).map((_, i) => {
+            const d = new Date();
+            d.setMonth(d.getMonth() - i);
+            const mk = `${d.getFullYear()}-${String(
+              d.getMonth() + 1
+            ).padStart(2, "0")}`;
+            return (
+              <option key={mk} value={mk}>
+                {mk}
+              </option>
+            );
+          })}
+        </select>
+      </div>
 
             <div className="field-stack field-span-2">
               <label>חיפוש</label>
@@ -393,3 +382,6 @@ export default function TransactionsPage() {
     </AppLayout>
   );
 }
+
+
+
