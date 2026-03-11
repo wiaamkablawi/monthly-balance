@@ -11,7 +11,7 @@ import { formatILS } from "../utils/money";
 import { auth } from "../services/firebase";
 import { db } from "../services/firebaseDb";
 import type { EntryDoc } from "../types/models";
-import { getAvailableMonthKeys, getEntriesByMonth } from "../services/entriesService";
+import { getAvailableMonthKeys } from "../services/entriesService";
 
 import {
   Chart as ChartJS,
@@ -954,8 +954,19 @@ export default function DashboardPage() {
           return;
         }
         const householdId = householdIdFromEmail(user.email);
-        const arr = await getEntriesByMonth(householdId, monthKey);
+        const qByMonthKey = query(
+          collection(db, "records"),
+          where("householdId", "==", householdId),
+          where("monthKey", "==", monthKey)
+        );
+
+        const snapKey = await getDocs(qByMonthKey);
         if (cancelled) return;
+
+        const arr: EntryDoc[] = snapKey.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<EntryDoc, "id">),
+        }));
 
 
         const today = new Date();
@@ -1633,3 +1644,4 @@ export default function DashboardPage() {
     </AppLayout>
   );
 }
+
