@@ -1,14 +1,8 @@
 import React, { useEffect, useState } from "react";
 import BottomNav from "../../components/BottomNav";
-import { APP_BUILD } from "../buildInfo";
+import { displayNameFromEmail } from "../../services/authService";
 import { auth } from "../../services/firebase";
-
-function displayNameFromEmail(email: string): string {
-  const normalized = email.toLowerCase();
-  if (normalized === "k.wiaam@gmail.com") return "ויאם";
-  if (normalized === "boshra.kablawi@gmail.com") return "בושרא";
-  return email.split("@")[0] || "משתמש";
-}
+import { APP_BUILD } from "../buildInfo";
 
 function formatDateTime(date: Date): string {
   const day = String(date.getDate()).padStart(2, "0");

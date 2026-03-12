@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { loginWithGoogle } from "../services/authService";
-import { isFirebaseConfigured } from "../services/firebase";
+import { getFirebaseConfigurationError, isFirebaseConfigured } from "../services/firebase";
 
 export default function LoginPage() {
   const [err, setErr] = useState<string>("");
+  const firebaseConfigurationError = getFirebaseConfigurationError();
 
   async function onGoogleLogin() {
     setErr("");
@@ -32,6 +33,12 @@ export default function LoginPage() {
           >
             התחברות עם Google
           </button>
+
+          {!isFirebaseConfigured ? (
+            <div style={{ color: "#fca5a5", fontSize: 12 }}>
+              {firebaseConfigurationError}
+            </div>
+          ) : null}
 
           {!isFirebaseConfigured ? (
             <div style={{ color: "#fca5a5", fontSize: 12 }}>

@@ -1,8 +1,24 @@
-import React, { Suspense, lazy, useEffect, useState } from "react";
+﻿import React, { Suspense, lazy, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { watchAuth } from "../services/authService";
 import type { User } from "firebase/auth";
 import { APP_BUILD } from "./buildInfo";
+
+function formatBuildVersion(value: string): string {
+  const dotMatch = value.match(/^(\d{4})\.(\d{2})\.(\d{2})-(\d{2})(\d{2})$/);
+  if (dotMatch) {
+    return `${dotMatch[1]}-${dotMatch[2]}-${dotMatch[3]} ${dotMatch[4]}:${dotMatch[5]}:00`;
+  }
+
+  const isoMatch = value.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]} ${isoMatch[2]}`;
+  }
+
+  return value;
+}
+
+const BUILD_VERSION = formatBuildVersion(new Date().toISOString());
 
 const DashboardPage = lazy(() => import("../pages/DashboardPage"));
 const AddEntryPage = lazy(() => import("../pages/AddEntryPage"));
@@ -39,10 +55,10 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    window.__MONTHLY_BALANCE_BUILD__ = APP_BUILD;
+    window.__MONTHLY_BALANCE_BUILD__ = BUILD_VERSION;
 
     if (!window.__MONTHLY_BALANCE_BUILD_LOGGED__) {
-      console.info(`[monthly-balance] build ${APP_BUILD}`);
+      console.info(`[monthly-balance] build: ${BUILD_VERSION}`);
       window.__MONTHLY_BALANCE_BUILD_LOGGED__ = true;
     }
   }, []);

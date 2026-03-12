@@ -63,13 +63,18 @@ function toISODateString(value: unknown, fallbackISO: string): string {
 
 function detectTypeFromRaw(typeRaw: string, amount: number): EntryDoc["type"] {
   const normalized = typeRaw.trim().toLowerCase();
-  if (normalized.includes("income") || normalized.includes("credit") || normalized.includes("הכנסה") || normalized.includes("זיכוי")) {
+  if (normalized.includes("income") || normalized.includes("credit") || normalized.includes("?????") || normalized.includes("?????")) {
     return "income";
   }
-  if (normalized.includes("expense") || normalized.includes("debit") || normalized.includes("הוצאה") || normalized.includes("חיוב")) {
+  if (normalized.includes("expense") || normalized.includes("debit") || normalized.includes("?????") || normalized.includes("????")) {
     return "expense";
   }
   return amount >= 0 ? "income" : "expense";
+}
+
+function parseImportedAmount(value: unknown): number {
+  const numericAmount = Number(String(value || "").replace(/[^\d,.-]/g, "").replace(/,/g, "").trim());
+  return Number.isFinite(numericAmount) ? Math.abs(numericAmount) : 0;
 }
 
 function normalizeFingerprintText(raw: string): string {
@@ -109,30 +114,35 @@ async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedF
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" });
     const parsedRows = rows
       .map((row, index): ParsedImportRow | null => {
+        const debitAmount = parseImportedAmount(row["????"] ?? row.debit ?? row.Debit);
+        const creditAmount = parseImportedAmount(row["?????"] ?? row.credit ?? row.Credit);
         const amountRaw =
           row.amount ||
           row.Amount ||
           row.sum ||
           row.Total ||
-          row["סכום"] ||
-          row["חיוב"] ||
-          row["זיכוי"];
+          row["????"] ||
+          row["????"] ||
+          row["?????"];
 
-        const numericAmount = Number(String(amountRaw || "").replace(/,/g, "").trim());
+        const numericAmount = debitAmount || creditAmount || parseImportedAmount(amountRaw);
         if (!Number.isFinite(numericAmount) || numericAmount === 0) return null;
 
-        const dateRaw = row.date || row.Date || row["תאריך"];
-        const descriptionRaw = row.description || row.Description || row.details || row["תיאור"] || "";
-        const categoryRaw = row.category || row.Category || row["קטגוריה"] || "אחר";
-        const typeRaw = row.type || row.Type || row["סוג"] || "";
+        const dateRaw = row.date || row.Date || row["?????"];
+        const descriptionRaw = row.description || row.Description || row.details || row["?????"] || "";
+        const categoryRaw = row.category || row.Category || row["???????"] || "???";
+        const typeRaw = row.type || row.Type || row["???"] || "";
+        const resolvedTypeRaw =
+          debitAmount && !creditAmount ? "????" : creditAmount && !debitAmount ? "?????" : String(typeRaw || "");
+        const typeAmount = debitAmount && !creditAmount ? -numericAmount : numericAmount;
 
         return {
           id: `${file.name}-${index}-${Math.random().toString(16).slice(2)}`,
-          type: detectTypeFromRaw(String(typeRaw || ""), numericAmount),
+          type: detectTypeFromRaw(resolvedTypeRaw, typeAmount),
           date: toISODateString(dateRaw, fallbackISO),
-          category: String(categoryRaw || "אחר").trim(),
-          description: String(descriptionRaw || "").trim() || "ייבוא קובץ",
-          amount: String(Math.abs(numericAmount)),
+          category: String(categoryRaw || "???").trim(),
+          description: String(descriptionRaw || "").trim() || "????? ????",
+          amount: String(numericAmount),
           selected: true,
           importSource: `file:${file.name}`,
         };

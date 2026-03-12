@@ -1,26 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState, useTransition } from "react";
-import {
-  DASHBOARD_FIXED_EXPENSE_CATEGORIES,
-  DASHBOARD_INCOME_CATEGORIES,
-  DASHBOARD_VARIABLE_EXPENSE_CATEGORIES,
-} from "../domain/categories";
-import AppLayout from "../app/layout/AppLayout";
-import { currentMonthKey, monthKeyFromISO } from "../utils/dates";
-import { formatILS } from "../utils/money";
-import { auth } from "../services/firebase";
-import { db } from "../services/firebaseDb";
-import type { EntryDoc } from "../types/models";
-
-import {
-  Chart as ChartJS,
-  ArcElement,
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  Legend,
-  LinearScale,
-  Tooltip,
-} from "chart.js";
+import { ArcElement, BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Tooltip } from "chart.js";
 import { Bar, Doughnut } from "react-chartjs-2";
 import { Link } from "react-router-dom";
 import AppLayout from "../app/layout/AppLayout";
@@ -34,7 +13,7 @@ import { formatILS } from "../utils/money";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
-const chartPalette = ["#0f766e", "#0891b2", "#2563eb", "#059669", "#ca8a04", "#ea580c"];
+const chartPalette = ["#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#2563eb", "#7c3aed", "#be185d"];
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -123,634 +102,155 @@ export default function DashboardPage() {
   const variableByCategory = useMemo(() => groupVariableExpensesByCategory(entries).slice(0, 6), [entries]);
   const recentActivity = useMemo(() => summary.recentActivity.slice(0, 6), [summary.recentActivity]);
 
-  const progressPercent = Math.round(summary.progress.progress * 100);
-  const expenseLoadPercent = summary.expenseLoad === null ? null : Math.round(summary.expenseLoad * 100);
-  const balanceTone = summary.totals.balance >= 0 ? "positive" : "negative";
-
-  return (
-    <AppLayout
-      title="סקירה תפעולית"
-      subtitle="מבנה עבודה של מרכז בקרה: חודש נבחר, תובנות, התחייבויות ותנועות אחרונות."
-    >
-      <div className="page-stack">
-        <section className="hero-panel">
-          <div className="hero-copy">
-            <div className="eyebrow">Monthly cockpit</div>
-            <h2 className="hero-title">{formatMonthKey(monthKey)}</h2>
-            <p className="hero-text">
-              תמונת מצב אחת שמרכזת איזון חודשי, קצב הוצאות, התחייבויות קבועות ופעולות מהירות להמשך עבודה.
-            </p>
-
-            <div className="toolbar-actions">
-              <Link className="btn" to="/add">
-                תנועה ידנית
-              </Link>
-              <button className="btn secondary" type="button" onClick={() => setIsImportOpen(true)}>
-                ייבוא קובץ
-              </button>
-              <Link className="btn secondary" to="/transactions">
-                לכל היומן
-              </Link>
-            </div>
-          </div>
-
-          <div className="hero-side card-shell">
-            <div className="field-stack">
-              <label>חודש ניתוח</label>
-              <select
-                className="input"
-                value={monthKey}
-                onChange={(event) => startMonthTransition(() => setMonthKey(event.target.value))}
-              >
-                {monthOptions.map((optionMonthKey: string) => (
-                  <option key={optionMonthKey} value={optionMonthKey}>
-                    {formatMonthKey(optionMonthKey)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label>תיאור</label>
-            <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} />
-          </div>
-
-          {isExpense && kind === "expense_variable" ? (
-            <>
-              <div>
-                <label>מספר תשלומים</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={120}
-                  value={installments}
-                  onChange={(e) => setInstallments(Number(e.target.value))}
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label>יום חיוב לתשלומים הבאים</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={31}
-                  value={chargeDay}
-                  onChange={(e) => setChargeDay(Number(e.target.value))}
-                  disabled={saving || installments <= 1}
-                />
-              </div>
-            </>
-          ) : null}
-
-          {kind === "expense_fixed" ? (
-            <div>
-              <label>יום חיוב חודשי</label>
-              <input
-                className="input"
-                type="number"
-                min={1}
-                max={28}
-                value={chargeDay}
-                onChange={(e) => setChargeDay(Number(e.target.value))}
-                disabled={saving}
-              />
-            </div>
-          ) : null}
-        </div>
-
-        {err ? (
-          <div className="error" style={{ marginTop: 10 }}>
-            {err}
-          </div>
-        ) : null}
-
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 16 }}>
-          <button className="btn secondary" type="button" onClick={onClose} disabled={saving}>
-            ביטול
-          </button>
-          <button className="btn" type="button" onClick={onSave} disabled={saving}>
-            {saving ? "שומר..." : "שמור"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function DashboardPage() {
-  const [monthKey, setMonthKey] = useState<string>(currentMonthKey());
-  const [state, setState] = useState<LoadState>("idle");
-  const [err, setErr] = useState<string>("");
-  const [items, setItems] = useState<EntryDoc[]>([]);
-  const [deletingId, setDeletingId] = useState<string>("");
-
-  const [reloadKey, setReloadKey] = useState<number>(0);
-  const [isAddOpen, setIsAddOpen] = useState<boolean>(false);
-  const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
-
-  const [editingId, setEditingId] = useState<string>("");
-  const [editDate, setEditDate] = useState<string>("");
-  const [editCategory, setEditCategory] = useState<string>("");
-  const [editDesc, setEditDesc] = useState<string>("");
-  const [editAmount, setEditAmount] = useState<string>("");
-  const [savingEditId, setSavingEditId] = useState<string>("");
-  const [editErr, setEditErr] = useState<string>("");
-
-  const [variableExpensesTrend, setVariableExpensesTrend] = useState<{ month: string; value: number }[]>([]);
-
-  const months = useMemo(() => {
-    const out: string[] = [];
-    const now = new Date();
-    for (let i = 0; i < 18; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      out.push(`${y}-${m}`);
-    }
-    return out;
-  }, []);
-
-  async function ensureFixedRealizationsForMonth(targetMonthKey: string) {
-    const user = auth.currentUser;
-    if (!user?.email) return;
-
-    const householdId = householdIdFromEmail(user.email);
-    const uk = userKeyFromEmail(user.email);
-    if (uk !== "W") return;
-
-    const tmplSnap = await getDocs(query(collection(db, "fixed_templates"), where("householdId", "==", householdId)));
-    if (tmplSnap.empty) return;
-
-    const batch = writeBatch(db);
-    let writes = 0;
-    const createdAtBase = Date.now();
-
-    for (const t of tmplSnap.docs) {
-      const data: any = t.data();
-      if (data?.isActive === false) continue;
-
-      const chargeDayRaw = Number(data.chargeDay || 1);
-      const chargeDay = Math.max(1, Math.min(28, chargeDayRaw));
-
-      const dd = String(chargeDay).padStart(2, "0");
-      const dateISO = `${targetMonthKey}-${dd}`;
-
-      const docId = `fx__${targetMonthKey}__${uk}__${t.id}`;
-      const ref = doc(collection(db, "records"), docId);
-      const existing = await getDoc(ref);
-      if (existing.exists()) continue;
-
-      batch.set(ref, {
-        type: "expense",
-        subType: "fixed_realization",
-        monthKey: targetMonthKey,
-        date: dateISO,
-
-        category: String(data.category || "אחר"),
-        description: String(data.description || "").trim(),
-        amount: Number(data.amount || 0),
-
-        chargeDay,
-        templateId: t.id,
-        source: "fixed_template",
-
-        createdBy: user.email,
-        ownerUid: user.uid,
-        householdId,
-        userKey: uk,
-        createdAt: createdAtBase + writes,
-      });
-
-      writes += 1;
-    }
-
-    if (writes > 0) {
-      await batch.commit();
-    }
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setState("loading");
-      setErr("");
-      setDeletingId("");
-      setEditingId("");
-      setEditErr("");
-      setSavingEditId("");
-
-      try {
-        await ensureFixedRealizationsForMonth(monthKey);
-
-        const user = auth.currentUser;
-        if (!user?.email) {
-          setItems([]);
-          setState("ready");
-          return;
-        }
-        const householdId = householdIdFromEmail(user.email);
-        const qByMonthKey = query(
-          collection(db, "records"),
-          where("householdId", "==", householdId),
-          where("monthKey", "==", monthKey)
-        );
-
-        const snapKey = await getDocs(qByMonthKey);
-        if (cancelled) return;
-
-        const arr: EntryDoc[] = snapKey.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<EntryDoc, "id">),
-        }));
-
-
-        const today = new Date();
-
-        const filtered = arr.filter((it: any) => {
-          if (!isFixedExpense(it)) return true;
-
-          const chargeDay = Number(it.chargeDay || 1);
-          const mk2 = it.monthKey || monthKey;
-
-          const [y, m] = String(mk2).split("-").map(Number);
-          const chargeDate = new Date(y, (m || 1) - 1, chargeDay);
-
-          return today >= chargeDate;
-        });
-
-        const normalizeDate = (v: any): string => {
-          if (!v) return "";
-          if (typeof v === "string") return v.trim().slice(0, 10);
-          if (typeof v?.toDate === "function") {
-            try {
-              return v.toDate().toISOString().slice(0, 10);
-            } catch {
-              return "";
-            }
-          }
-          if (v instanceof Date) return v.toISOString().slice(0, 10);
-          return "";
-        };
-
-        filtered.sort((a: any, b: any) => {
-          const ad = normalizeDate(a?.date);
-          const bd = normalizeDate(b?.date);
-
-          if (ad !== bd) return bd.localeCompare(ad);
-
-          const aT = toMillis(a?.updatedAt) || toMillis(a?.createdAt);
-          const bT = toMillis(b?.updatedAt) || toMillis(b?.createdAt);
-          return bT - aT;
-        });
-
-        setItems(filtered);
-        setState("ready");
-      } catch (e: any) {
-        if (cancelled) return;
-        setErr(e?.message || "שגיאה בטעינת נתונים.");
-        setState("error");
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [monthKey, reloadKey]);
-
-  // מגמת הוצאות משתנות ל-6 חודשים אחרונים
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadVariableExpensesTrend() {
-      try {
-        const now = new Date();
-        const last6Months: string[] = [];
-
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          last6Months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-        }
-
-        // איחוד תוצאות משתי שאילתות: month וגם monthKey (כדי לתפוס רשומות ישנות)
-        const user = auth.currentUser;
-        if (!user?.email) {
-          setVariableExpensesTrend([]);
-          return;
-        }
-        const householdId = householdIdFromEmail(user.email);
-        const qByMonthKey = query(
-          collection(db, "records"),
-          where("householdId", "==", householdId),
-          where("type", "==", "expense"),
-          where("monthKey", "in", last6Months)
-        );
-
-        const snap = await getDocs(qByMonthKey);
-        if (cancelled) return;
-
-        const docs: Array<Record<string, any>> = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Record<string, any>),
-        }));
-
-        const map = new Map<string, number>();
-        last6Months.forEach((m) => map.set(m, 0));
-
-        docs.forEach((data) => {
-          if (isFixedExpense(data)) return;
-
-          const mk = String(data.monthKey || "").trim();
-          if (!mk) return;
-          if (!map.has(mk)) return;
-
-          map.set(mk, (map.get(mk) || 0) + Number(data.amount || 0));
-        });
-
-        setVariableExpensesTrend(
-          last6Months.map((m) => ({
-            month: m,
-            value: map.get(m) || 0,
-          }))
-        );
-      } catch {
-        setVariableExpensesTrend([]);
-      }
-    }
-
-    loadVariableExpensesTrend();
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadKey]);
-
-
-  const totals = useMemo(() => {
-    let income = 0;
-    let variable = 0;
-    let fixed = 0;
-
-    for (const it of items) {
-      if (it.type === "income") income += Number(it.amount || 0);
-      if (isVariableExpense(it)) variable += Number(it.amount || 0);
-      if (isFixedExpense(it)) fixed += Number(it.amount || 0);
-    }
-
-    const balance = income - (variable + fixed);
-    return { income, variable, fixed, balance };
-  }, [items]);
-
-  const variableExpensesByCategory = useMemo(() => {
-    const m = new Map<string, number>();
-
-    items.forEach((it) => {
-      if (it.type === "expense" && !isFixedExpense(it)) {
-        const cat = it.category || "ללא קטגוריה";
-        const prev = m.get(cat) || 0;
-        m.set(cat, prev + Number(it.amount || 0));
-      }
-    });
-
-    return Array.from(m.entries()).map(([category, value]) => ({
-      category,
-      value,
-    }));
-  }, [items]);
-
-  async function onDelete(id: string) {
-    if (!id) return;
-    setDeletingId(id);
-    setErr("");
-
-    try {
-      await deleteDoc(doc(db, "records", id));
-      setItems((prev) => prev.filter((x) => x.id !== id));
-    } catch (e: any) {
-      setErr(e?.message || "שגיאה במחיקה.");
-    } finally {
-      setDeletingId("");
-    }
-  }
-
-  function startEdit(it: EntryDoc) {
-    setEditingId(it.id || "");
-    setEditDate(it.date || "");
-    setEditCategory(it.category || "");
-    setEditDesc(it.description || "");
-    setEditAmount(String(it.amount ?? ""));
-    setEditErr("");
-  }
-
-  function cancelEdit() {
-    setEditingId("");
-    setEditErr("");
-    setSavingEditId("");
-  }
-
-  async function saveEdit(it: EntryDoc) {
-    if (!it.id) return;
-
-    const n = parseAmountInput(editAmount);
-    if (!n) {
-      setEditErr("נא להזין סכום תקין.");
-      return;
-    }
-    if (!editCategory) {
-      setEditErr("נא לבחור קטגוריה.");
-      return;
-    }
-    if (!editDate) {
-      setEditErr("נא לבחור תאריך.");
-      return;
-    }
-
-    setSavingEditId(it.id);
-    setEditErr("");
-
-    const mk = monthKeyFromISO(editDate);
-
-    try {
-      const ref = doc(db, "records", it.id);
-      await updateDoc(ref, {
-        date: editDate,
-        monthKey: mk,
-        category: editCategory,
-        description: editDesc,
-        amount: n,
-      });
-
-      setItems((prev) =>
-        prev.map((x) =>
-          x.id === it.id
-            ? {
-                ...x,
-        date: editDate,
-                monthKey: mk,
-        category: editCategory,
-                description: editDesc,
-                amount: n,
-              }
-            : x
-        )
-      );
-
-      cancelEdit();
-    } catch (e: any) {
-      setEditErr(e?.message || "שגיאה בשמירה.");
-    } finally {
-      setSavingEditId("");
-    }
-  }
+  const cardStyle = {
+    background: "linear-gradient(180deg, #ffffff, #f8fafc)",
+    borderRadius: 20,
+    boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
+  };
+
+  const balanceBorder =
+    summary.totals.balance > 0
+      ? "6px solid rgba(34,197,94,0.95)"
+      : summary.totals.balance < 0
+        ? "6px solid rgba(239,68,68,0.95)"
+        : undefined;
 
   return (
     <AppLayout title="דשבורד">
-      <button
-        className="btn"
-        type="button"
-        onClick={() => setIsImportOpen(true)}
-        disabled={state === "loading"}
-        style={{
-          position: "fixed",
-          right: 14,
-          bottom: 96,
-          zIndex: 90,
-          boxShadow: "0 14px 34px rgba(2,6,23,0.28)",
-          background: "linear-gradient(135deg, rgba(168,85,247,0.98), rgba(37,99,235,0.95))",
-        }}
-      >
-        📁 הוספת קובץ
-      </button>
-
-      <div className="container">
+      <div className="page-stack">
         <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div className="row" style={{ gap: 10, alignItems: "center" }}>
-            <button className="btn" onClick={() => setIsAddOpen(true)} disabled={state === "loading"}>
+            <Link className="btn" to="/add">
               הוספת תנועה
+            </Link>
+            <button className="btn secondary" type="button" onClick={() => setIsImportOpen(true)} disabled={state === "loading" || isMonthPending}>
+              הוספת קובץ
             </button>
-            <button
-              className="btn"
-              onClick={() => setIsImportOpen(true)}
-              disabled={state === "loading"}
-              style={{ background: "linear-gradient(135deg, rgba(168,85,247,0.95), rgba(37,99,235,0.92))" }}
-            >
-              📁 הוספת קובץ
-            </button>
+            <Link className="btn secondary" to="/transactions">
+              לכל התנועות
+            </Link>
           </div>
 
           <div className="row" style={{ gap: 10, alignItems: "center" }}>
             <div className="muted" style={{ fontSize: 12 }}>
               חודש
             </div>
-            <select className="input" style={{ width: 160 }} value={monthKey} onChange={(e) => setMonthKey(e.target.value)}>
-              {months.map((m) => (
-                <option key={m} value={m}>
-                  {m}
+            <select
+              className="input"
+              style={{ width: 180 }}
+              value={monthKey}
+              disabled={state === "loading" || isMonthPending}
+              onChange={(event) => startMonthTransition(() => setMonthKey(event.target.value))}
+            >
+              {monthOptions.map((optionMonthKey) => (
+                <option key={optionMonthKey} value={optionMonthKey}>
+                  {formatMonthKey(optionMonthKey)}
                 </option>
               ))}
             </select>
           </div>
-        </section>
+        </div>
 
-        <section className="chart-grid">
-          <article className="card chart-card">
-            <div className="section-header compact">
-              <div>
-                <div className="section-title">פיזור הוצאות משתנות</div>
-                <div className="section-subtitle">זיהוי מה מושך את רוב ההוצאה החופשית.</div>
-              </div>
-            </div>
+        <div className="muted" style={{ fontSize: 12 }}>
+          תצוגה חודשית. הכרטיסיות והגרפים מתעדכנים אוטומטית לפי החודש שנבחר.
+        </div>
 
-        <div style={{ height: 14 }} />
+        <div
+          className="card"
+          style={{
+            ...cardStyle,
+            padding: 10,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 10,
+          }}
+        >
+          <button className="btn" type="button" onClick={() => setIsImportOpen(true)} disabled={state === "loading" || isMonthPending}>
+            פתיחת ייבוא קובץ
+          </button>
+          <Link className="btn secondary" to="/transactions">
+            מעבר ליומן מלא
+          </Link>
+          <div className="muted" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>
+            {state === "loading" || isMonthPending ? "טוען נתוני חודש..." : `סקירה עבור ${formatMonthKey(monthKey)}`}
+          </div>
+        </div>
 
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        {availableMonths.length > 0 && !availableMonths.includes(currentMonth) ? (
+          <div className="note-banner">החודש הנוכחי ללא נתונים, ולכן מוצג אוטומטית החודש האחרון עם תנועות.</div>
+        ) : null}
+        {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
+
+        <div style={{ maxWidth: 1100, margin: "0 auto", width: "100%" }}>
           <div style={{ marginBottom: 14 }}>
-            <div
-              className="kpi-card kpi-balance"
-              style={{
-                borderLeft:
-                  totals.balance > 0
-                    ? "6px solid rgba(34,197,94,0.95)"
-                    : totals.balance < 0
-                    ? "6px solid rgba(239,68,68,0.95)"
-                    : undefined,
-              }}
-            >
-              <div className="kpi-top">
-                <div className="kpi-title">יתרה חודשית</div>
-                <div className="kpi-icon">✓</div>
+            <div className="card" style={{ ...cardStyle, borderLeft: balanceBorder }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 900 }}>יתרה חודשית</div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    הכנסות פחות הוצאות קבועות והוצאות משתנות
+                  </div>
+                </div>
+                <div
+                  style={{
+                    fontSize: "clamp(1.7rem, 3vw, 2.5rem)",
+                    fontWeight: 900,
+                    color:
+                      summary.totals.balance > 0
+                        ? "rgba(34,197,94,0.95)"
+                        : summary.totals.balance < 0
+                          ? "rgba(239,68,68,0.95)"
+                          : undefined,
+                  }}
+                >
+                  {formatILS(summary.totals.balance)}
+                </div>
               </div>
-
-              <div
-                className="kpi-value"
-                style={{
-                  color:
-                    totals.balance > 0
-                      ? "rgba(34,197,94,0.95)"
-                      : totals.balance < 0
-                      ? "rgba(239,68,68,0.95)"
-                      : undefined,
-                }}
-              >
-                {formatILS(totals.balance)}
-              </div>
-
-              <div className="kpi-sub muted">הכנסות פחות הוצאות</div>
             </div>
           </div>
 
-          <div className="kpi-grid">
-            <div className="kpi-card kpi-variable">
-              <div className="kpi-top">
-                <div className="kpi-title">הוצאות משתנות</div>
-                <div className="kpi-icon">≈</div>
-              </div>
-              <div className="kpi-value">{formatILS(totals.variable)}</div>
-              <div className="kpi-sub muted">קניות, דלק, בילויים</div>
+          <div className="kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+            <div className="card" style={cardStyle}>
+              <div style={{ fontWeight: 900 }}>הכנסות</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10 }}>{formatILS(summary.totals.income)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>השלב הראשון בחישוב היתרה החודשית</div>
             </div>
-
-            <div className="kpi-card kpi-fixed">
-              <div className="kpi-top">
-                <div className="kpi-title">הוצאות קבועות</div>
-                <div className="kpi-icon">○</div>
-              </div>
-              <div className="kpi-value">{formatILS(totals.fixed)}</div>
-              <div className="kpi-sub muted">תשלומים חוזרים וקבועים</div>
+            <div className="card" style={cardStyle}>
+              <div style={{ fontWeight: 900 }}>הוצאות קבועות</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10 }}>{formatILS(summary.totals.fixed)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>תשלומים חוזרים והתחייבויות קבועות</div>
             </div>
-
-            <div className="kpi-card kpi-income">
-              <div className="kpi-top">
-                <div className="kpi-title">הכנסות</div>
-                <div className="kpi-icon">+</div>
-              </div>
-              <div className="kpi-value">{formatILS(totals.income)}</div>
-              <div className="kpi-sub muted">סך כל ההכנסות בחודש</div>
+            <div className="card" style={cardStyle}>
+              <div style={{ fontWeight: 900 }}>הוצאות משתנות</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10 }}>{formatILS(summary.totals.variable)}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>קניות, דלק, בילויים והוצאות שוטפות</div>
             </div>
           </div>
         </div>
+
+        <section className="summary-grid compact-grid">
+          {insights.map((insight) => (
+            <article key={insight.title} className={`summary-card ${insight.tone === "good" ? "positive" : insight.tone === "warn" ? "negative" : "neutral"}`}>
+              <div className="summary-label">{insight.title}</div>
+              <div className="summary-value small">{insight.value}</div>
+              <div className="summary-hint">{insight.detail}</div>
+            </article>
+          ))}
+        </section>
 
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
             gap: 24,
-            marginTop: 24,
-            marginBottom: 24,
+            marginTop: 2,
+            marginBottom: 2,
           }}
         >
-          <div
-            className="card"
-            style={{
-              background: "linear-gradient(180deg, #ffffff, #f8fafc)",
-              borderRadius: 20,
-              boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
-            }}
-          >
+          <div className="card" style={cardStyle}>
             <h3 style={{ marginBottom: 12 }}>הוצאות משתנות לפי קטגוריות</h3>
 
-            {variableExpensesByCategory.length === 0 ? (
+            {variableByCategory.length === 0 ? (
               <div className="muted">אין נתונים להצגה</div>
             ) : (
               <div style={{ filter: "drop-shadow(0px 6px 10px rgba(0,0,0,0.25))" }}>
@@ -763,14 +263,24 @@ export default function DashboardPage() {
                           data: variableByCategory.map((item) => item.value),
                           backgroundColor: chartPalette,
                           borderWidth: 0,
-                          hoverOffset: 12,
+                          hoverOffset: 18,
                         },
                       ],
                     }}
                     options={{
-                      cutout: "62%",
+                      cutout: "48%",
+                      rotation: -40,
+                      animation: {
+                        animateRotate: true,
+                        duration: 900,
+                      },
                       plugins: {
-                        legend: { position: "bottom" },
+                        legend: {
+                          position: "bottom",
+                          labels: {
+                            padding: 18,
+                          },
+                        },
                         tooltip: {
                           callbacks: {
                             label: (context) => `${context.label}: ${formatILS(context.raw as number)}`,
@@ -780,125 +290,135 @@ export default function DashboardPage() {
                     }}
                   />
                 </div>
-
-                <div className="category-bars">
-                  {variableByCategory.slice(0, 4).map((item) => {
-                    const width = summary.totals.variable > 0 ? (item.value / summary.totals.variable) * 100 : 0;
-                    return (
-                      <div key={item.category} className="category-row">
-                        <div className="category-meta">
-                          <span>{item.category}</span>
-                          <strong>{formatILS(item.value)}</strong>
-                        </div>
-                        <div className="category-track">
-                          <div className="category-fill" style={{ width: `${Math.max(width, 8)}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            ) : (
-              <div className="empty-panel">עדיין אין הוצאות משתנות לחודש הזה.</div>
-            )}
-          </article>
-
-          <article className="card chart-card">
-            <div className="section-header compact">
-              <div>
-                <div className="section-title">מגמת הוצאות משתנות</div>
-                <div className="section-subtitle">תצוגת שישה חודשים כדי לראות אם הקצב יציב או מטפס.</div>
               </div>
-            </div>
+            )}
+          </div>
 
-            {trend.length ? (
-              <div className="chart-box tall">
-                <Bar
-                  data={{
-                    labels: trend.map((point) => point.month),
-                    datasets: [
-                      {
-                        data: trend.map((point) => point.value),
-                        backgroundColor: "rgba(15,118,110,0.85)",
-                        borderRadius: 16,
-                        borderSkipped: false,
-                      },
-                    ],
-                  }}
-                  options={{
-                    responsive: true,
-                    plugins: {
-                      legend: { display: false },
-                      tooltip: {
-                        callbacks: {
-                          label: (context) => formatILS(context.raw as number),
-                        },
+          <div className="card" style={cardStyle}>
+            <h3 style={{ marginBottom: 12 }}>הוצאות משתנות - השוואה חודשית</h3>
+
+            {trend.length === 0 ? (
+              <div className="muted">אין נתונים להצגה</div>
+            ) : (
+              <Bar
+                data={{
+                  labels: trend.map((point) => point.month),
+                  datasets: [
+                    {
+                      data: trend.map((point) => point.value),
+                      backgroundColor: "rgba(239,68,68,0.85)",
+                      borderRadius: 14,
+                      borderSkipped: false,
+                    },
+                  ],
+                }}
+                options={{
+                  responsive: true,
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                      callbacks: {
+                        label: (context) => formatILS(context.raw as number),
                       },
                     },
-                    scales: {
-                      y: {
-                        ticks: {
-                          callback: (value) => formatILS(Number(value)),
-                        },
+                  },
+                  elements: {
+                    bar: { borderWidth: 0 },
+                  },
+                  scales: {
+                    x: {
+                      ticks: {
+                        autoSkip: false,
+                        maxRotation: 0,
+                        minRotation: 0,
                       },
                     },
-                  }}
-                />
-              </div>
-            ) : (
-              <div className="empty-panel">אין מספיק נתונים היסטוריים להצגת מגמה.</div>
+                    y: {
+                      ticks: {
+                        callback: (value) => formatILS(Number(value)),
+                      },
+                    },
+                  },
+                }}
+              />
             )}
-          </article>
-        </section>
+          </div>
+        </div>
 
-        <section className="card">
-          <div className="section-header">
-            <div>
-              <div className="section-title">פעילות אחרונה</div>
-              <div className="section-subtitle">השורות האחרונות שנכנסו או עודכנו בחודש הנבחר.</div>
-            </div>
+        <div className="card" style={cardStyle}>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontWeight: 900 }}>פעילות אחרונה</div>
             <Link className="btn secondary" to="/transactions">
               יומן מלא
             </Link>
           </div>
 
-          {!recentActivity.length ? (
-            <div className="empty-panel">אין עדיין תנועות לחודש הזה. אפשר להתחיל מקליטה ידנית או מייבוא קובץ.</div>
-          ) : (
-            <div className="activity-list">
-              {recentActivity.map((entry) => {
-                const tone = getEntryTone(entry);
-                const installmentLabel = getInstallmentLabel(entry);
-                const lifecycle = getEntryLifecycle(entry, todayISO());
+          <div style={{ height: 10 }} />
 
-                return (
-                  <article key={entry.id} className={`activity-row ${tone}`}>
-                    <div className="activity-main">
-                      <div>
-                        <div className="activity-title">{entry.category || "ללא קטגוריה"}</div>
-                        <div className="activity-subtitle">{entry.description || getEntryTypeLabel(entry)}</div>
-                      </div>
+          {state === "loading" || isMonthPending ? <div className="muted">טוען...</div> : null}
+          {state !== "loading" && recentActivity.length === 0 ? <div className="muted">אין נתונים לחודש הזה.</div> : null}
 
-                      <div className={`activity-amount ${tone}`}>
-                        {entry.type === "income" ? "+" : "-"}
-                        {formatILS(Number(entry.amount || 0))}
+          <div style={{ display: "grid", gap: 10 }}>
+            {recentActivity.map((entry) => {
+              const tone = getEntryTone(entry);
+              const installmentLabel = getInstallmentLabel(entry);
+              const lifecycle = getEntryLifecycle(entry, todayISO());
+
+              return (
+                <div
+                  key={entry.id}
+                  style={{
+                    borderLeft:
+                      entry.type === "income"
+                        ? "4px solid rgba(34,197,94,0.95)"
+                        : tone === "fixed"
+                          ? "4px solid rgba(168,85,247,0.95)"
+                          : "4px solid rgba(239,68,68,0.95)",
+                    borderRadius: 18,
+                    borderTop: "1px solid rgba(15,23,42,0.08)",
+                    borderRight: "1px solid rgba(15,23,42,0.08)",
+                    borderBottom: "1px solid rgba(15,23,42,0.08)",
+                    background: "rgba(255,255,255,0.94)",
+                    padding: 14,
+                  }}
+                >
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 900 }}>{entry.category || "ללא קטגוריה"}</div>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                        {entry.description || getEntryTypeLabel(entry)}
                       </div>
                     </div>
 
-                    <div className="activity-meta-row">
-                      <div className="activity-date">{entry.date}</div>
-                      <div className="badge-row">
-                        <span className={`status-pill ${tone}`}>{getEntryTypeLabel(entry)}</span>
-                        {lifecycle === "scheduled" ? <span className="status-pill warn">מתוזמן</span> : null}
-                        {installmentLabel ? <span className="status-pill neutral">תשלום {installmentLabel}</span> : null}
-                      </div>
+                    <div
+                      style={{
+                        fontWeight: 900,
+                        color:
+                          entry.type === "income"
+                            ? "rgba(34,197,94,0.95)"
+                            : tone === "fixed"
+                              ? "rgba(168,85,247,0.95)"
+                              : "rgba(239,68,68,0.95)",
+                      }}
+                    >
+                      {entry.type === "income" ? "+" : "-"}
+                      {formatILS(Number(entry.amount || 0))}
                     </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                  </div>
+
+                  <div className="row" style={{ justifyContent: "space-between", marginTop: 8, gap: 12 }}>
+                    <div className="muted" style={{ fontSize: 12 }}>{entry.date}</div>
+                    <div className="badge-row">
+                      <span className={`status-pill ${tone}`}>{getEntryTypeLabel(entry)}</span>
+                      {lifecycle === "scheduled" ? <span className="status-pill warn">מתוזמן</span> : null}
+                      {installmentLabel ? <span className="status-pill neutral">תשלום {installmentLabel}</span> : null}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <ImportEntriesModal

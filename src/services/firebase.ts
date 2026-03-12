@@ -24,9 +24,18 @@ const requiredFirebaseEnvKeys = [
   "VITE_FIREBASE_APP_ID",
 ] as const;
 
+export const missingFirebaseEnvKeys = requiredFirebaseEnvKeys.filter(
+  (key) => String(import.meta.env[key] || "").trim().length === 0
+);
+
 export const isFirebaseConfigured = requiredFirebaseEnvKeys.every(
   (key) => String(import.meta.env[key] || "").trim().length > 0
 );
+
+export function getFirebaseConfigurationError(): string {
+  if (!missingFirebaseEnvKeys.length) return "";
+  return `Firebase is not configured. Missing: ${missingFirebaseEnvKeys.join(", ")}`;
+}
 
 const firebaseConfig = {
   apiKey: envOrFallback("VITE_FIREBASE_API_KEY", "demo-api-key"),

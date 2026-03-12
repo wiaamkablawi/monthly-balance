@@ -61,3 +61,10 @@ export function userKeyFromEmail(email?: string | null): "W" | "B" {
   const e = (email || "").toLowerCase();
   return e.startsWith("boshra.") ? "B" : "W";
 }
+
+export function displayNameFromEmail(email?: string | null): string {
+  const normalized = (email || "").trim().toLowerCase();
+  if (normalized === "k.wiaam@gmail.com") return "ויאם";
+  if (normalized === "boshra.kablawi@gmail.com") return "בושרא";
+  return normalized.split("@")[0] || "משתמש";
+}

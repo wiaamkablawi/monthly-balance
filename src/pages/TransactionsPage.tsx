@@ -2,29 +2,18 @@
 import { Link } from "react-router-dom";
 import AppLayout from "../app/layout/AppLayout";
 import { summarizeMonthlyEntries } from "../domain/analytics";
-import {
-  getEntryLifecycle,
-  getEntryTone,
-  getEntryTypeLabel,
-  getInstallmentLabel,
-  parseAmountInput,
-  sortEntriesByDisplayDate,
-} from "../domain/entries";
+import { getEntryLifecycle, getEntryTone, getEntryTypeLabel, getInstallmentLabel, parseAmountInput, sortEntriesByDisplayDate } from "../domain/entries";
 import { deleteEntryRecord, listAvailableMonthKeys, listMonthEntries, updateEntryRecord } from "../services/recordsService";
 import type { EntryDoc } from "../types/models";
-import { householdIdFromEmail } from "../services/authService";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-
-  query,
-  updateDoc,
-  where,
-} from "firebase/firestore";
+import { currentMonthKey, formatMonthKey, listRecentMonthKeys, monthKeyFromISO, todayISO } from "../utils/dates";
+import { formatILS } from "../utils/money";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
+type FilterKey = "all" | "income" | "variable" | "fixed" | "scheduled";
+
+function mergeMonthOptions(primary: string[], secondary: string[]): string[] {
+  return Array.from(new Set([...primary, ...secondary])).sort((left, right) => right.localeCompare(left));
+}
 
 export default function TransactionsPage() {
   const currentMonth = currentMonthKey();
@@ -32,20 +21,52 @@ export default function TransactionsPage() {
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [items, setItems] = useState<EntryDoc[]>([]);
   const [state, setState] = useState<LoadState>("idle");
-  const [err, setErr] = useState("");
-  const [items, setItems] = useState<EntryDoc[]>([]);
-
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [filterKey, setFilterKey] = useState<FilterKey>("all");
+  const [editingId, setEditingId] = useState("");
   const [editDate, setEditDate] = useState("");
   const [editCategory, setEditCategory] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editAmount, setEditAmount] = useState("");
+  const [editError, setEditError] = useState("");
+  const [savingEditId, setSavingEditId] = useState("");
+  const [deletingId, setDeletingId] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+  const [isMonthPending, startMonthTransition] = useTransition();
 
-  const openSwipeId = useRef<string | null>(null);
+  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
+  const monthOptions = useMemo(
+    () => mergeMonthOptions(listRecentMonthKeys(18, currentMonth, "desc"), availableMonths),
+    [availableMonths, currentMonth]
+  );
 
-  /* =========================
-     Load data
-  ========================= */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMonthAvailability() {
+      try {
+        const months = await listAvailableMonthKeys();
+        if (cancelled) return;
+
+        setAvailableMonths(months);
+        if (!months.length) return;
+        if (!months.includes(currentMonth) && monthKey === currentMonth) {
+          setMonthKey(months[0]);
+        }
+      } catch {
+        if (!cancelled) {
+          setAvailableMonths([]);
+        }
+      }
+    }
+
+    loadMonthAvailability();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken, currentMonth, monthKey]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -72,30 +93,23 @@ export default function TransactionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [monthKey]);
-
-  useEffect(() => {
-    if (!monthOptions.length) return;
-    if (!monthOptions.includes(monthKey)) {
-      setMonthKey(monthOptions[0]);
-    }
-  }, [monthOptions, monthKey]);
+  }, [monthKey, reloadToken]);
 
   const monthSummary = useMemo(() => summarizeMonthlyEntries(items, monthKey), [items, monthKey]);
 
   const filteredItems = useMemo(() => {
-    return items.filter((entry) => {
+    const filtered = items.filter((entry) => {
       const lifecycle = getEntryLifecycle(entry, todayISO());
       const matchesFilter =
         filterKey === "all"
           ? true
           : filterKey === "income"
-          ? entry.type === "income"
-          : filterKey === "variable"
-          ? getEntryTone(entry) === "variable"
-          : filterKey === "fixed"
-          ? getEntryTone(entry) === "fixed"
-          : lifecycle === "scheduled";
+            ? entry.type === "income"
+            : filterKey === "variable"
+              ? getEntryTone(entry) === "variable"
+              : filterKey === "fixed"
+                ? getEntryTone(entry) === "fixed"
+                : lifecycle === "scheduled";
 
       if (!matchesFilter) return false;
       if (!deferredSearch) return true;
@@ -107,6 +121,8 @@ export default function TransactionsPage() {
 
       return haystack.includes(deferredSearch);
     });
+
+    return sortEntriesByDisplayDate(filtered);
   }, [items, filterKey, deferredSearch]);
 
   function startEdit(entry: EntryDoc) {
@@ -124,70 +140,57 @@ export default function TransactionsPage() {
     setSavingEditId("");
   }
 
-  async function saveEdit(it: EntryDoc) {
-    const mk = monthKeyFromISO(editDate);
-
-    await updateDoc(doc(db, "records", it.id), {
-      date: editDate,
-      monthKey: mk,
-      category: editCategory,
-      description: editDescription,
-      amount: Number(editAmount),
-      updatedAt: Date.now(),
-    });
-
-    setEditingId(null);
-  }
-
-  async function onDelete(it: EntryDoc) {
-    if (!window.confirm("למחוק את התנועה?")) return;
-    await deleteDoc(doc(db, "records", it.id));
-    setItems((prev) => prev.filter((x) => x.id !== it.id));
-  }
-
-  /* =========================
-     Swipe logic – FIXED
-  ========================= */
- function onPointerDown(e: React.PointerEvent, id: string) {
-  const row = (e.currentTarget as HTMLElement).closest(
-    ".swipe-row"
-  ) as HTMLElement | null;
-  if (!row) return;
-
-  const contentEl = row.querySelector(".swipe-content");
-  if (!(contentEl instanceof HTMLElement)) return;
-
-  const content = contentEl; // מעכשיו non-null ו-type-safe
-
-  // סגירת swipe פתוח קודם
-  if (openSwipeId.current && openSwipeId.current !== id) {
-    const prev = document.querySelector(
-      `[data-swipe-id="${openSwipeId.current}"] .swipe-content`
-    );
-    if (prev instanceof HTMLElement) {
-      prev.style.transform = "";
+  async function saveEdit(entry: EntryDoc) {
+    const amount = parseAmountInput(editAmount);
+    if (!amount) {
+      setEditError("נא להזין סכום תקין.");
+      return;
     }
-    openSwipeId.current = null;
-  }
-
-  let startX = e.clientX;
-  let currentX = 0;
-  const maxSwipe = -140;
-  let moved = false;
-
-  function move(ev: PointerEvent) {
-    currentX = ev.clientX - startX;
-
-    if (Math.abs(currentX) > 6) {
-      moved = true;
-      ev.preventDefault();
+    if (!editCategory) {
+      setEditError("נא להזין קטגוריה.");
+      return;
+    }
+    if (!editDate) {
+      setEditError("נא לבחור תאריך.");
+      return;
     }
 
-    if (currentX < 0) {
-      content.style.transform = `translateX(${Math.max(
-        currentX,
-        maxSwipe
-      )}px)`;
+    setSavingEditId(entry.id);
+    setEditError("");
+
+    try {
+      await updateEntryRecord(entry.id, {
+        date: editDate,
+        category: editCategory,
+        description: editDescription,
+        amount,
+      });
+
+      const nextMonthKey = monthKeyFromISO(editDate);
+      if (nextMonthKey !== monthKey) {
+        setReloadToken((value) => value + 1);
+      } else {
+        setItems((currentItems) =>
+          currentItems.map((currentEntry) =>
+            currentEntry.id === entry.id
+              ? {
+                  ...currentEntry,
+                  date: editDate,
+                  monthKey: nextMonthKey,
+                  category: editCategory,
+                  description: editDescription,
+                  amount,
+                }
+              : currentEntry
+          )
+        );
+      }
+
+      cancelEdit();
+    } catch (error: any) {
+      setEditError(error?.message || "אירעה שגיאה בשמירת התנועה.");
+    } finally {
+      setSavingEditId("");
     }
   }
 
@@ -206,31 +209,43 @@ export default function TransactionsPage() {
     }
   }
 
+  const cardStyle = {
+    background: "linear-gradient(180deg, #ffffff, #f8fafc)",
+    borderRadius: 20,
+    boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
+  };
+
   return (
     <AppLayout title="תנועות">
-      <div className="card">
-        <label>חודש</label>
-        <select
-          className="input"
-          value={monthKey}
-          onChange={(e) => setMonthKey(e.target.value)}
-        >
-          {Array.from({ length: 24 }).map((_, i) => {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const mk = `${d.getFullYear()}-${String(
-              d.getMonth() + 1
-            ).padStart(2, "0")}`;
-            return (
-              <option key={mk} value={mk}>
-                {mk}
-              </option>
-            );
-          })}
-        </select>
-      </div>
+      <div className="page-stack">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <Link className="btn" to="/add">
+            הוספת תנועה
+          </Link>
 
-            <div className="field-stack field-span-2">
+          <div className="row" style={{ gap: 10, alignItems: "center" }}>
+            <div className="muted" style={{ fontSize: 12 }}>
+              חודש
+            </div>
+            <select
+              className="input"
+              style={{ width: 180 }}
+              value={monthKey}
+              disabled={state === "loading" || isMonthPending}
+              onChange={(event) => startMonthTransition(() => setMonthKey(event.target.value))}
+            >
+              {monthOptions.map((optionMonthKey) => (
+                <option key={optionMonthKey} value={optionMonthKey}>
+                  {formatMonthKey(optionMonthKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="card" style={cardStyle}>
+          <div className="row" style={{ gap: 12, alignItems: "flex-end" }}>
+            <div className="field-stack" style={{ flex: 2, minWidth: 220 }}>
               <label>חיפוש</label>
               <input
                 className="input"
@@ -240,7 +255,7 @@ export default function TransactionsPage() {
               />
             </div>
 
-            <div className="field-stack">
+            <div className="field-stack" style={{ flex: 1, minWidth: 180 }}>
               <label>סינון</label>
               <select className="input" value={filterKey} onChange={(event) => setFilterKey(event.target.value as FilterKey)}>
                 <option value="all">כל התנועות</option>
@@ -251,13 +266,13 @@ export default function TransactionsPage() {
               </select>
             </div>
           </div>
+        </div>
 
-          {availableMonths.length > 0 && !availableMonths.includes(currentMonth) ? (
-            <div className="note-banner">החודש הנוכחי ללא תנועות, ולכן מוצג אוטומטית החודש האחרון עם נתונים.</div>
-          ) : null}
-          {state === "loading" || isMonthPending ? <div className="note-banner">טוען את היומן...</div> : null}
-          {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
-        </section>
+        {availableMonths.length > 0 && !availableMonths.includes(currentMonth) ? (
+          <div className="note-banner">החודש הנוכחי ללא תנועות, ולכן מוצג אוטומטית החודש האחרון עם נתונים.</div>
+        ) : null}
+        {state === "loading" || isMonthPending ? <div className="note-banner">טוען את היומן...</div> : null}
+        {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
 
         <section className="summary-grid compact-grid">
           <article className="summary-card neutral">
@@ -282,18 +297,18 @@ export default function TransactionsPage() {
           </article>
         </section>
 
-        <section className="card">
-          <div className="section-header compact">
-            <div>
-              <div className="section-title">רשומות</div>
-              <div className="section-subtitle">היומן מסודר בסדר כרונולוגי יורד, עם סטטוסים ותשלומים מפוצלים.</div>
-            </div>
+        <div className="card" style={cardStyle}>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontWeight: 900 }}>תנועות</div>
+            <div className="muted" style={{ fontSize: 12 }}>הכרטיסיות מתעדכנות לפי החיפוש והסינון הנוכחיים</div>
           </div>
 
+          <div style={{ height: 10 }} />
+
           {!filteredItems.length ? (
-            <div className="empty-panel">לא נמצאו תנועות שתואמות את הסינון הנוכחי.</div>
+            <div className="muted">לא נמצאו תנועות שתואמות את הסינון הנוכחי.</div>
           ) : (
-            <div className="ledger-list">
+            <div style={{ display: "grid", gap: 10 }}>
               {filteredItems.map((entry) => {
                 const tone = getEntryTone(entry);
                 const lifecycle = getEntryLifecycle(entry, todayISO());
@@ -301,68 +316,92 @@ export default function TransactionsPage() {
                 const isEditing = editingId === entry.id;
 
                 return (
-                  <article key={entry.id} className={`ledger-row ${tone}`}>
+                  <div
+                    key={entry.id}
+                    style={{
+                      borderLeft:
+                        entry.type === "income"
+                          ? "4px solid rgba(34,197,94,0.95)"
+                          : tone === "fixed"
+                            ? "4px solid rgba(168,85,247,0.95)"
+                            : "4px solid rgba(239,68,68,0.95)",
+                      borderRadius: 18,
+                      borderTop: "1px solid rgba(15,23,42,0.08)",
+                      borderRight: "1px solid rgba(15,23,42,0.08)",
+                      borderBottom: "1px solid rgba(15,23,42,0.08)",
+                      background: "rgba(255,255,255,0.94)",
+                      padding: 14,
+                    }}
+                  >
                     {!isEditing ? (
                       <>
-                        <div className="ledger-top">
+                        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                           <div>
-                            <div className="ledger-title">{entry.category || "ללא קטגוריה"}</div>
-                            <div className="ledger-subtitle">{entry.description || getEntryTypeLabel(entry)}</div>
+                            <div
+                              style={{
+                                fontWeight: 900,
+                                color:
+                                  entry.type === "income"
+                                    ? "rgba(34,197,94,0.95)"
+                                    : tone === "fixed"
+                                      ? "rgba(168,85,247,0.95)"
+                                      : "rgba(239,68,68,0.95)",
+                              }}
+                            >
+                              {entry.category || "ללא קטגוריה"} - {formatILS(Number(entry.amount || 0))}
+                            </div>
+                            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                              {getEntryTypeLabel(entry)}
+                              {entry.description ? ` · ${entry.description}` : ""}
+                            </div>
                           </div>
 
-                          <div className={`ledger-amount ${tone}`}>
-                            {entry.type === "income" ? "+" : "-"}
-                            {formatILS(Number(entry.amount || 0))}
+                          <div className="row" style={{ gap: 6 }}>
+                            <button className="btn secondary" type="button" onClick={() => startEdit(entry)}>
+                              ערוך
+                            </button>
+                            <button className="btn danger" type="button" onClick={() => removeEntry(entry)} disabled={deletingId === entry.id}>
+                              {deletingId === entry.id ? "מוחק..." : "מחיקה"}
+                            </button>
                           </div>
                         </div>
 
-                        <div className="ledger-meta">
-                          <span className="ledger-date">{entry.date}</span>
+                        <div className="row" style={{ justifyContent: "space-between", gap: 12, marginTop: 8 }}>
+                          <div className="muted" style={{ fontSize: 12 }}>{String(entry.date || "")}</div>
                           <div className="badge-row">
                             <span className={`status-pill ${tone}`}>{getEntryTypeLabel(entry)}</span>
                             {lifecycle === "scheduled" ? <span className="status-pill warn">מתוזמן</span> : null}
                             {installmentLabel ? <span className="status-pill neutral">תשלום {installmentLabel}</span> : null}
                           </div>
                         </div>
-
-                        <div className="ledger-actions">
-                          <button className="btn secondary" type="button" onClick={() => startEdit(entry)}>
-                            ערוך
-                          </button>
-                          <button
-                            className="btn danger"
-                            type="button"
-                            onClick={() => removeEntry(entry)}
-                            disabled={deletingId === entry.id}
-                          >
-                            {deletingId === entry.id ? "מוחק..." : "מחק"}
-                          </button>
-                        </div>
                       </>
                     ) : (
-                      <div className="ledger-editor">
-                        <div className="filters-grid compact-editor">
-                          <div className="field-stack">
+                      <>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <div>
                             <label>תאריך</label>
                             <input className="input" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} />
                           </div>
-                          <div className="field-stack">
+
+                          <div>
                             <label>קטגוריה</label>
                             <input className="input" value={editCategory} onChange={(event) => setEditCategory(event.target.value)} />
                           </div>
-                          <div className="field-stack">
+
+                          <div>
                             <label>סכום</label>
                             <input className="input" value={editAmount} onChange={(event) => setEditAmount(event.target.value)} />
                           </div>
-                          <div className="field-stack field-span-2">
+
+                          <div>
                             <label>תיאור</label>
                             <input className="input" value={editDescription} onChange={(event) => setEditDescription(event.target.value)} />
                           </div>
                         </div>
 
-                        {editError ? <div className="error-banner">{editError}</div> : null}
+                        {editError ? <div className="error" style={{ marginTop: 8 }}>{editError}</div> : null}
 
-                        <div className="ledger-actions">
+                        <div className="row" style={{ gap: 8, marginTop: 10 }}>
                           <button className="btn" type="button" onClick={() => saveEdit(entry)} disabled={savingEditId === entry.id}>
                             {savingEditId === entry.id ? "שומר..." : "שמור"}
                           </button>
@@ -370,18 +409,15 @@ export default function TransactionsPage() {
                             ביטול
                           </button>
                         </div>
-                      </div>
+                      </>
                     )}
-                  </article>
+                  </div>
                 );
               })}
             </div>
           )}
-        </section>
+        </div>
       </div>
     </AppLayout>
   );
 }
-
-
-
