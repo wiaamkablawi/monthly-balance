@@ -1040,24 +1040,20 @@ export async function listAvailableMonthKeys(): Promise<string[]> {
 
 async function loadRecordsForMonthFallback(context: SessionContext, monthKey: string): Promise<EntryDoc[]> {
   const byId = new Map<string, EntryDoc>();
-  const snapshots: Array<QuerySnapshot | null> = [];
-
-  for (const email of ALLOWED_EMAIL_LIST) {
-    snapshots.push(
-      await readRecords(
+  const snapshots = await Promise.all(
+    ALLOWED_EMAIL_LIST.flatMap((email) => [
+      readRecords(
         `createdBy:${email}`,
         () => getDocs(query(collection(db, "records"), where("createdBy", "==", email))),
         { optional: true }
-      )
-    );
-    snapshots.push(
-      await readRecords(
+      ),
+      readRecords(
         `userEmail:${email}`,
         () => getDocs(query(collection(db, "records"), where("userEmail", "==", email))),
         { optional: true }
-      )
-    );
-  }
+      ),
+    ])
+  );
 
   for (const snapshot of snapshots) {
     snapshot?.docs.forEach((recordDoc) => {
@@ -1133,9 +1129,15 @@ async function loadMonthEntriesCached(context: SessionContext, monthKey: string)
 
   const loaderPromise = (async () => {
     const scopedItems = await loadRecordsForMonth(context, monthKey);
-    let items = scopedItems || [];
+    if (scopedItems && scopedItems.length > 0) {
+      const sortedItems = sortEntriesByDisplayDate(scopedItems);
+      cachedMonthEntries.set(monthKey, sortedItems);
+      return sortedItems;
+    }
 
-    if (!items.length) {
+    let items: EntryDoc[] = [];
+
+    if (scopedItems === null) {
       items = (await loadRecords(context))
         .map(({ entry }) => entry)
         .filter((entry) => entry.monthKey === monthKey);
@@ -1332,7 +1334,6 @@ export async function deleteEntryRecord(entryId: string): Promise<void> {
   clearRecordsCache();
   clearFixedTemplatesCache();
 }
-
 
 
 
