@@ -53,6 +53,9 @@ let cachedRecordsPromise: Promise<LoadedRecord[]> | null = null;
 let cachedMonthEntriesKey = "";
 let cachedMonthEntries = new Map<string, MonthEntriesCacheValue>();
 let cachedMonthEntriesPromises = new Map<string, Promise<MonthEntriesCacheValue>>();
+let cachedScopedMonthEntriesKey = "";
+let cachedScopedMonthEntries = new Map<string, EntryDoc[] | null>();
+let cachedScopedMonthEntriesPromises = new Map<string, Promise<EntryDoc[] | null>>();
 let cachedAvailableMonthKeysKey = "";
 let cachedAvailableMonthKeys: string[] | null = null;
 let cachedAvailableMonthKeysPromise: Promise<string[]> | null = null;
@@ -71,6 +74,9 @@ function clearRecordsCache(): void {
   cachedMonthEntriesKey = "";
   cachedMonthEntries = new Map();
   cachedMonthEntriesPromises = new Map();
+  cachedScopedMonthEntriesKey = "";
+  cachedScopedMonthEntries = new Map();
+  cachedScopedMonthEntriesPromises = new Map();
   cachedAvailableMonthKeysKey = "";
   cachedAvailableMonthKeys = null;
   cachedAvailableMonthKeysPromise = null;
@@ -1080,33 +1086,65 @@ async function loadRecordsForMonthFallback(context: SessionContext, monthKey: st
 }
 
 async function loadRecordsForMonth(context: SessionContext, monthKey: string): Promise<EntryDoc[] | null> {
-  const snapshot = await readRecords(`household_month:${monthKey}`, () =>
-    getDocs(
-      query(collection(db, "records"), where("householdId", "==", context.householdId), where("monthKey", "==", monthKey))
-    )
-  );
-  if (!snapshot) return null;
+  const cacheKey = recordsCacheKey(context);
+  if (cachedScopedMonthEntriesKey !== cacheKey) {
+    cachedScopedMonthEntriesKey = cacheKey;
+    cachedScopedMonthEntries = new Map();
+    cachedScopedMonthEntriesPromises = new Map();
+  }
 
-  const normalized = snapshot.docs
-    .map((recordDoc) => {
-      const raw = recordDoc.data() as LegacyRecord;
-      if (!matchesContextRecord(raw, context)) return null;
+  if (cachedScopedMonthEntries.has(monthKey)) {
+    return cachedScopedMonthEntries.get(monthKey) ?? null;
+  }
 
-      const entry = normalizeRecord(recordDoc.id, raw, context);
-      if (entry.amount <= 0 || entry.monthKey !== monthKey) return null;
-      return entry;
-    })
-    .filter((entry): entry is EntryDoc => Boolean(entry));
+  const inFlight = cachedScopedMonthEntriesPromises.get(monthKey);
+  if (inFlight) {
+    return inFlight;
+  }
 
-  const { items, duplicateCount } = dedupeItemsByEntry(normalized, (entry) => entry);
+  const loaderPromise = (async () => {
+    const snapshot = await readRecords(`household_month:${monthKey}`, () =>
+      getDocs(
+        query(collection(db, "records"), where("householdId", "==", context.householdId), where("monthKey", "==", monthKey))
+      )
+    );
+    if (!snapshot) return null;
 
-  console.info(`[monthly-balance] records month scoped ${APP_BUILD}`, {
-    monthKey,
-    count: items.length,
-    duplicateCount,
-  });
+    const normalized = snapshot.docs
+      .map((recordDoc) => {
+        const raw = recordDoc.data() as LegacyRecord;
+        if (!matchesContextRecord(raw, context)) return null;
 
-  return items;
+        const entry = normalizeRecord(recordDoc.id, raw, context);
+        if (entry.amount <= 0 || entry.monthKey !== monthKey) return null;
+        return entry;
+      })
+      .filter((entry): entry is EntryDoc => Boolean(entry));
+
+    const { items, duplicateCount } = dedupeItemsByEntry(normalized, (entry) => entry);
+
+    console.info(`[monthly-balance] records month scoped ${APP_BUILD}`, {
+      monthKey,
+      count: items.length,
+      duplicateCount,
+    });
+
+    return items;
+  })();
+
+  cachedScopedMonthEntriesPromises.set(monthKey, loaderPromise);
+
+  try {
+    const items = await loaderPromise;
+    if (cachedScopedMonthEntriesKey === cacheKey) {
+      cachedScopedMonthEntries.set(monthKey, items);
+    }
+    return items;
+  } finally {
+    if (cachedScopedMonthEntriesKey === cacheKey) {
+      cachedScopedMonthEntriesPromises.delete(monthKey);
+    }
+  }
 }
 
 async function loadMonthEntriesCached(context: SessionContext, monthKey: string): Promise<EntryDoc[]> {
@@ -1334,7 +1372,6 @@ export async function deleteEntryRecord(entryId: string): Promise<void> {
   clearRecordsCache();
   clearFixedTemplatesCache();
 }
-
 
 
 
