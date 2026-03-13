@@ -1203,6 +1203,8 @@ async function loadMonthEntriesCached(context: SessionContext, monthKey: string)
 async function probeAvailableMonths(context: SessionContext): Promise<string[]> {
   const recentMonthKeys = listRecentMonthKeys(18, currentMonthKey(), "desc");
   const availableMonths = new Set<string>();
+  const maxConsecutiveEmptyMonthsAfterData = 3;
+  let consecutiveEmptyMonths = 0;
 
   if (cachedMonthEntriesKey === recordsCacheKey(context)) {
     cachedMonthEntries.forEach((items, monthKey) => {
@@ -1212,14 +1214,24 @@ async function probeAvailableMonths(context: SessionContext): Promise<string[]> 
     });
   }
 
-  const monthsToProbe = recentMonthKeys.filter((monthKey) => !availableMonths.has(monthKey));
-  const scopedResults = await Promise.all(monthsToProbe.map((monthKey) => loadRecordsForMonthScopedCached(context, monthKey)));
-
-  scopedResults.forEach((items, index) => {
-    if (items?.length) {
-      availableMonths.add(monthsToProbe[index]);
+  for (const monthKey of recentMonthKeys) {
+    if (availableMonths.has(monthKey)) {
+      consecutiveEmptyMonths = 0;
+      continue;
     }
-  });
+
+    const scopedItems = await loadRecordsForMonthScopedCached(context, monthKey);
+    if (scopedItems?.length) {
+      availableMonths.add(monthKey);
+      consecutiveEmptyMonths = 0;
+      continue;
+    }
+
+    consecutiveEmptyMonths += 1;
+    if (availableMonths.size > 0 && consecutiveEmptyMonths >= maxConsecutiveEmptyMonthsAfterData) {
+      break;
+    }
+  }
 
   if (!availableMonths.size) {
     const loaded = await loadRecords(context);
