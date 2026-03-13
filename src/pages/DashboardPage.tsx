@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useState, useTransition } from "react";
 import { ArcElement, BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Tooltip } from "chart.js";
 import { Bar, Doughnut } from "react-chartjs-2";
 import { Link } from "react-router-dom";
@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [entries, setEntries] = useState<EntryDoc[]>([]);
   const [trend, setTrend] = useState<Array<{ month: string; value: number }>>([]);
+  const [isTrendLoading, setIsTrendLoading] = useState(false);
   const [state, setState] = useState<LoadState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
@@ -40,6 +41,8 @@ export default function DashboardPage() {
   const trendMonths = useMemo(() => listRecentMonthKeys(6, monthKey, "asc"), [monthKey]);
 
   useEffect(() => {
+    if (state !== "ready") return;
+
     let cancelled = false;
 
     async function loadMonthAvailability() {
@@ -63,7 +66,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken, currentMonth, monthKey]);
+  }, [reloadToken, currentMonth, monthKey, state]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,23 +74,36 @@ export default function DashboardPage() {
     async function loadDashboard() {
       setState("loading");
       setErrorMessage("");
+      setTrend([]);
+      setIsTrendLoading(true);
 
       try {
-        const [monthEntries, variableTrend] = await Promise.all([
-          listMonthEntries(monthKey),
-          listVariableExpenseTrend(trendMonths),
-        ]);
+        const monthEntries = await listMonthEntries(monthKey);
 
         if (cancelled) return;
         setEntries(monthEntries);
-        setTrend(variableTrend);
         setState("ready");
       } catch (error: any) {
         if (cancelled) return;
         setEntries([]);
         setTrend([]);
+        setIsTrendLoading(false);
         setState("error");
         setErrorMessage(error?.message || "לא הצלחנו לטעון את הסקירה החודשית.");
+        return;
+      }
+
+      try {
+        const variableTrend = await listVariableExpenseTrend(trendMonths);
+        if (cancelled) return;
+        setTrend(variableTrend);
+      } catch {
+        if (cancelled) return;
+        setTrend([]);
+      } finally {
+        if (!cancelled) {
+          setIsTrendLoading(false);
+        }
       }
     }
 
@@ -297,7 +313,9 @@ export default function DashboardPage() {
           <div className="card" style={cardStyle}>
             <h3 style={{ marginBottom: 12 }}>הוצאות משתנות - השוואה חודשית</h3>
 
-            {trend.length === 0 ? (
+            {isTrendLoading ? (
+              <div className="muted">טוען נתוני מגמה...</div>
+            ) : trend.length === 0 ? (
               <div className="muted">אין נתונים להצגה</div>
             ) : (
               <Bar
