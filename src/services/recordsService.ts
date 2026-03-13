@@ -53,6 +53,9 @@ let cachedRecordsPromise: Promise<LoadedRecord[]> | null = null;
 let cachedMonthEntriesKey = "";
 let cachedMonthEntries = new Map<string, MonthEntriesCacheValue>();
 let cachedMonthEntriesPromises = new Map<string, Promise<MonthEntriesCacheValue>>();
+let cachedScopedMonthLoadsKey = "";
+let cachedScopedMonthLoads = new Map<string, EntryDoc[] | null>();
+let cachedScopedMonthLoadPromises = new Map<string, Promise<EntryDoc[] | null>>();
 let cachedAvailableMonthKeysKey = "";
 let cachedAvailableMonthKeys: string[] | null = null;
 let cachedAvailableMonthKeysPromise: Promise<string[]> | null = null;
@@ -71,6 +74,9 @@ function clearRecordsCache(): void {
   cachedMonthEntriesKey = "";
   cachedMonthEntries = new Map();
   cachedMonthEntriesPromises = new Map();
+  cachedScopedMonthLoadsKey = "";
+  cachedScopedMonthLoads = new Map();
+  cachedScopedMonthLoadPromises = new Map();
   cachedAvailableMonthKeysKey = "";
   cachedAvailableMonthKeys = null;
   cachedAvailableMonthKeysPromise = null;
@@ -1040,24 +1046,20 @@ export async function listAvailableMonthKeys(): Promise<string[]> {
 
 async function loadRecordsForMonthFallback(context: SessionContext, monthKey: string): Promise<EntryDoc[]> {
   const byId = new Map<string, EntryDoc>();
-  const snapshots: Array<QuerySnapshot | null> = [];
-
-  for (const email of ALLOWED_EMAIL_LIST) {
-    snapshots.push(
-      await readRecords(
+  const snapshots = await Promise.all(
+    ALLOWED_EMAIL_LIST.flatMap((email) => [
+      readRecords(
         `createdBy:${email}`,
         () => getDocs(query(collection(db, "records"), where("createdBy", "==", email))),
         { optional: true }
-      )
-    );
-    snapshots.push(
-      await readRecords(
+      ),
+      readRecords(
         `userEmail:${email}`,
         () => getDocs(query(collection(db, "records"), where("userEmail", "==", email))),
         { optional: true }
-      )
-    );
-  }
+      ),
+    ])
+  );
 
   for (const snapshot of snapshots) {
     snapshot?.docs.forEach((recordDoc) => {
@@ -1113,6 +1115,37 @@ async function loadRecordsForMonth(context: SessionContext, monthKey: string): P
   return items;
 }
 
+async function loadRecordsForMonthScopedCached(context: SessionContext, monthKey: string): Promise<EntryDoc[] | null> {
+  const cacheKey = recordsCacheKey(context);
+  if (cachedScopedMonthLoadsKey !== cacheKey) {
+    cachedScopedMonthLoadsKey = cacheKey;
+    cachedScopedMonthLoads = new Map();
+    cachedScopedMonthLoadPromises = new Map();
+  }
+
+  if (cachedScopedMonthLoads.has(monthKey)) {
+    return cachedScopedMonthLoads.get(monthKey) ?? null;
+  }
+
+  const inFlight = cachedScopedMonthLoadPromises.get(monthKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const loaderPromise = loadRecordsForMonth(context, monthKey);
+  cachedScopedMonthLoadPromises.set(monthKey, loaderPromise);
+
+  try {
+    const loaded = await loaderPromise;
+    cachedScopedMonthLoads.set(monthKey, loaded);
+    return loaded;
+  } finally {
+    if (cachedScopedMonthLoadsKey === cacheKey) {
+      cachedScopedMonthLoadPromises.delete(monthKey);
+    }
+  }
+}
+
 async function loadMonthEntriesCached(context: SessionContext, monthKey: string): Promise<EntryDoc[]> {
   const cacheKey = recordsCacheKey(context);
   if (cachedMonthEntriesKey !== cacheKey) {
@@ -1132,10 +1165,16 @@ async function loadMonthEntriesCached(context: SessionContext, monthKey: string)
   }
 
   const loaderPromise = (async () => {
-    const scopedItems = await loadRecordsForMonth(context, monthKey);
-    let items = scopedItems || [];
+    const scopedItems = await loadRecordsForMonthScopedCached(context, monthKey);
+    if (scopedItems && scopedItems.length > 0) {
+      const sortedItems = sortEntriesByDisplayDate(scopedItems);
+      cachedMonthEntries.set(monthKey, sortedItems);
+      return sortedItems;
+    }
 
-    if (!items.length) {
+    let items: EntryDoc[] = [];
+
+    if (scopedItems === null) {
       items = (await loadRecords(context))
         .map(({ entry }) => entry)
         .filter((entry) => entry.monthKey === monthKey);
@@ -1174,7 +1213,7 @@ async function probeAvailableMonths(context: SessionContext): Promise<string[]> 
   }
 
   const monthsToProbe = recentMonthKeys.filter((monthKey) => !availableMonths.has(monthKey));
-  const scopedResults = await Promise.all(monthsToProbe.map((monthKey) => loadRecordsForMonth(context, monthKey)));
+  const scopedResults = await Promise.all(monthsToProbe.map((monthKey) => loadRecordsForMonthScopedCached(context, monthKey)));
 
   scopedResults.forEach((items, index) => {
     if (items?.length) {
@@ -1332,8 +1371,6 @@ export async function deleteEntryRecord(entryId: string): Promise<void> {
   clearRecordsCache();
   clearFixedTemplatesCache();
 }
-
-
 
 
 
