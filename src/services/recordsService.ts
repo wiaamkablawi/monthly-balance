@@ -1202,7 +1202,6 @@ async function loadMonthEntriesCached(context: SessionContext, monthKey: string)
 }
 
 async function probeAvailableMonths(context: SessionContext): Promise<string[]> {
-  const recentMonthKeys = listRecentMonthKeys(18, currentMonthKey(), "desc");
   const availableMonths = new Set<string>();
 
   if (cachedMonthEntriesKey === recordsCacheKey(context)) {
@@ -1213,22 +1212,15 @@ async function probeAvailableMonths(context: SessionContext): Promise<string[]> 
     });
   }
 
-  const monthsToProbe = recentMonthKeys.filter((monthKey) => !availableMonths.has(monthKey));
-  const scopedResults = await Promise.all(monthsToProbe.map((monthKey) => loadRecordsForMonth(context, monthKey)));
-
-  scopedResults.forEach((items, index) => {
-    if (items?.length) {
-      availableMonths.add(monthsToProbe[index]);
+  const loaded = await loadRecords(context);
+  loaded.forEach(({ entry }) => {
+    if (entry.monthKey) {
+      availableMonths.add(entry.monthKey);
     }
   });
 
   if (!availableMonths.size) {
-    const loaded = await loadRecords(context);
-    loaded.forEach(({ entry }) => {
-      if (entry.monthKey) {
-        availableMonths.add(entry.monthKey);
-      }
-    });
+    return listRecentMonthKeys(1, currentMonthKey(), "desc");
   }
 
   return Array.from(availableMonths).sort((left, right) => right.localeCompare(left));
@@ -1372,7 +1364,6 @@ export async function deleteEntryRecord(entryId: string): Promise<void> {
   clearRecordsCache();
   clearFixedTemplatesCache();
 }
-
 
 
 
