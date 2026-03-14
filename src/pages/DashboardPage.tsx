@@ -6,7 +6,7 @@ import AppLayout from "../app/layout/AppLayout";
 import ImportEntriesModal from "../components/entry/ImportEntriesModal";
 import { buildDashboardInsights, groupVariableExpensesByCategory, summarizeMonthlyEntries } from "../domain/analytics";
 import { getEntryLifecycle, getEntryTone, getEntryTypeLabel, getInstallmentLabel } from "../domain/entries";
-import { listAvailableMonthKeys, listMonthEntries, listVariableExpenseTrend } from "../services/recordsService";
+import { ensureFixedRealizationsForMonth, listAvailableMonthKeys, listMonthEntries, listVariableExpenseTrend } from "../services/recordsService";
 import type { EntryDoc } from "../types/models";
 import { currentMonthKey, formatMonthKey, listRecentMonthKeys, todayISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
@@ -28,6 +28,7 @@ export default function DashboardPage() {
   const [entries, setEntries] = useState<EntryDoc[]>([]);
   const [trend, setTrend] = useState<Array<{ month: string; value: number }>>([]);
   const [isTrendLoading, setIsTrendLoading] = useState(false);
+  const [showCharts, setShowCharts] = useState(false);
   const [state, setState] = useState<LoadState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
@@ -44,6 +45,7 @@ export default function DashboardPage() {
     if (state !== "ready") return;
 
     let cancelled = false;
+    let timeoutId = 0;
 
     async function loadMonthAvailability() {
       try {
@@ -62,36 +64,61 @@ export default function DashboardPage() {
       }
     }
 
-    loadMonthAvailability();
+    timeoutId = window.setTimeout(() => {
+      void loadMonthAvailability();
+    }, 350);
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
   }, [reloadToken, currentMonth, monthKey, state]);
 
   useEffect(() => {
     let cancelled = false;
+    let chartTimer = 0;
 
     async function loadDashboard() {
       setState("loading");
       setErrorMessage("");
       setTrend([]);
       setIsTrendLoading(true);
+      setShowCharts(false);
 
       try {
-        const monthEntries = await listMonthEntries(monthKey);
+        const monthEntries = await listMonthEntries(monthKey, { ensureFixedRealizations: false });
 
         if (cancelled) return;
         setEntries(monthEntries);
         setState("ready");
+        chartTimer = window.setTimeout(() => {
+          if (!cancelled) {
+            setShowCharts(true);
+          }
+        }, 0);
       } catch (error: any) {
         if (cancelled) return;
         setEntries([]);
         setTrend([]);
         setIsTrendLoading(false);
+        setShowCharts(false);
         setState("error");
         setErrorMessage(error?.message || "לא הצלחנו לטעון את הסקירה החודשית.");
         return;
       }
+
+      void (async () => {
+        try {
+          const createdCount = await ensureFixedRealizationsForMonth(monthKey);
+          if (cancelled || createdCount === 0) return;
+
+          const refreshedEntries = await listMonthEntries(monthKey, { ensureFixedRealizations: false });
+          if (cancelled) return;
+
+          setEntries(refreshedEntries);
+        } catch {
+          // The main month data is already visible, so background hydration should not interrupt the screen.
+        }
+      })();
 
       try {
         const variableTrend = await listVariableExpenseTrend(trendMonths);
@@ -110,6 +137,7 @@ export default function DashboardPage() {
     loadDashboard();
     return () => {
       cancelled = true;
+      window.clearTimeout(chartTimer);
     };
   }, [monthKey, reloadToken, trendMonths]);
 
@@ -268,6 +296,8 @@ export default function DashboardPage() {
 
             {variableByCategory.length === 0 ? (
               <div className="muted">אין נתונים להצגה</div>
+            ) : !showCharts ? (
+              <div className="muted">Loading chart...</div>
             ) : (
               <div style={{ filter: "drop-shadow(0px 6px 10px rgba(0,0,0,0.25))" }}>
                 <div style={{ filter: "drop-shadow(0 18px 28px rgba(0,0,0,0.28))" }}>
@@ -315,6 +345,8 @@ export default function DashboardPage() {
 
             {isTrendLoading ? (
               <div className="muted">טוען נתוני מגמה...</div>
+            ) : !showCharts ? (
+              <div className="muted">Loading chart...</div>
             ) : trend.length === 0 ? (
               <div className="muted">אין נתונים להצגה</div>
             ) : (

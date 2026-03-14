@@ -44,6 +44,9 @@ type LoadedRecord = {
 type QueryDoc = { id: string; data: () => unknown };
 type QuerySnapshot = { docs: QueryDoc[] };
 type MonthEntriesCacheValue = EntryDoc[];
+type ListMonthEntriesOptions = {
+  ensureFixedRealizations?: boolean;
+};
 
 let attemptedLegacyTemplateFallback = false;
 let attemptedLegacyRecordFallback = false;
@@ -913,7 +916,7 @@ async function loadRecords(context: SessionContext): Promise<LoadedRecord[]> {
   }
 }
 
-export async function ensureFixedRealizationsForMonth(targetMonthKey: string): Promise<void> {
+export async function ensureFixedRealizationsForMonth(targetMonthKey: string): Promise<number> {
   const context = requireSessionContext();
   const templates = await loadFixedTemplates(context);
 
@@ -923,7 +926,7 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
       templates: 0,
       created: 0,
     });
-    return;
+    return 0;
   }
 
   const batch = writeBatch(db);
@@ -1008,6 +1011,8 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
     activeTemplates,
     created: writes,
   });
+
+  return writes;
 }
 
 export async function listAvailableMonthKeys(): Promise<string[]> {
@@ -1226,9 +1231,11 @@ async function probeAvailableMonths(context: SessionContext): Promise<string[]> 
   return Array.from(availableMonths).sort((left, right) => right.localeCompare(left));
 }
 
-export async function listMonthEntries(monthKey: string): Promise<EntryDoc[]> {
+export async function listMonthEntries(monthKey: string, options?: ListMonthEntriesOptions): Promise<EntryDoc[]> {
   const context = requireSessionContext();
-  await ensureFixedRealizationsForMonth(monthKey);
+  if (options?.ensureFixedRealizations !== false) {
+    await ensureFixedRealizationsForMonth(monthKey);
+  }
   const items = await loadMonthEntriesCached(context, monthKey);
 
   console.info(`[monthly-balance] records month ${APP_BUILD}`, {
