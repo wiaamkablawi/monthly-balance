@@ -13,7 +13,7 @@ import { formatILS } from "../utils/money";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
-const chartPalette = ["#dc2626", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#2563eb", "#7c3aed", "#be185d"];
+const chartPalette = ["#c9a84c", "#f87171", "#4ade80", "#60a5fa", "#a78bfa", "#fb7185", "#34d399", "#fbbf24"];
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -146,17 +146,11 @@ export default function DashboardPage() {
   const variableByCategory = useMemo(() => groupVariableExpensesByCategory(entries).slice(0, 6), [entries]);
   const recentActivity = useMemo(() => summary.recentActivity.slice(0, 6), [summary.recentActivity]);
 
-  const cardStyle = {
-    background: "linear-gradient(180deg, #ffffff, #f8fafc)",
-    borderRadius: 20,
-    boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
-  };
-
   const balanceBorder =
     summary.totals.balance > 0
-      ? "6px solid rgba(34,197,94,0.95)"
+      ? "6px solid var(--success)"
       : summary.totals.balance < 0
-        ? "6px solid rgba(239,68,68,0.95)"
+        ? "6px solid var(--danger)"
         : undefined;
 
   return (
@@ -195,31 +189,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="muted" style={{ fontSize: 12 }}>
-          תצוגה חודשית. הכרטיסיות והגרפים מתעדכנים אוטומטית לפי החודש שנבחר.
-        </div>
-
-        <div
-          className="card"
-          style={{
-            ...cardStyle,
-            padding: 10,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 10,
-          }}
-        >
-          <button className="btn" type="button" onClick={() => setIsImportOpen(true)} disabled={state === "loading" || isMonthPending}>
-            פתיחת ייבוא קובץ
-          </button>
-          <Link className="btn secondary" to="/transactions">
-            מעבר ליומן מלא
-          </Link>
-          <div className="muted" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700 }}>
-            {state === "loading" || isMonthPending ? "טוען נתוני חודש..." : `סקירה עבור ${formatMonthKey(monthKey)}`}
-          </div>
-        </div>
-
         {availableMonths.length > 0 && !availableMonths.includes(currentMonth) ? (
           <div className="note-banner">החודש הנוכחי ללא נתונים, ולכן מוצג אוטומטית החודש האחרון עם תנועות.</div>
         ) : null}
@@ -227,7 +196,7 @@ export default function DashboardPage() {
 
         <div style={{ maxWidth: 1100, margin: "0 auto", width: "100%" }}>
           <div style={{ marginBottom: 14 }}>
-            <div className="card" style={{ ...cardStyle, borderLeft: balanceBorder }}>
+            <div className="card" style={{ borderLeft: balanceBorder }}>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                 <div>
                   <div style={{ fontWeight: 900 }}>יתרה חודשית</div>
@@ -254,19 +223,19 @@ export default function DashboardPage() {
           </div>
 
           <div className="kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-            <div className="card" style={cardStyle}>
+            <div className="card">
               <div style={{ fontWeight: 900 }}>הכנסות</div>
-              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10 }}>{formatILS(summary.totals.income)}</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10, color: "var(--success)" }}>{formatILS(summary.totals.income)}</div>
               <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>השלב הראשון בחישוב היתרה החודשית</div>
             </div>
-            <div className="card" style={cardStyle}>
+            <div className="card">
               <div style={{ fontWeight: 900 }}>הוצאות קבועות</div>
-              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10 }}>{formatILS(summary.totals.fixed)}</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10, color: "var(--primary)" }}>{formatILS(summary.totals.fixed)}</div>
               <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>תשלומים חוזרים והתחייבויות קבועות</div>
             </div>
-            <div className="card" style={cardStyle}>
+            <div className="card">
               <div style={{ fontWeight: 900 }}>הוצאות משתנות</div>
-              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10 }}>{formatILS(summary.totals.variable)}</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 900, marginTop: 10, color: "var(--danger)" }}>{formatILS(summary.totals.variable)}</div>
               <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>קניות, דלק, בילויים והוצאות שוטפות</div>
             </div>
           </div>
@@ -291,7 +260,7 @@ export default function DashboardPage() {
             marginBottom: 2,
           }}
         >
-          <div className="card" style={cardStyle}>
+          <div className="card">
             <h3 style={{ marginBottom: 12 }}>הוצאות משתנות לפי קטגוריות</h3>
 
             {variableByCategory.length === 0 ? (
@@ -325,6 +294,7 @@ export default function DashboardPage() {
                           position: "bottom",
                           labels: {
                             padding: 18,
+                            color: "#d4c9b0",
                           },
                         },
                         tooltip: {
@@ -340,7 +310,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="card" style={cardStyle}>
+          <div className="card">
             <h3 style={{ marginBottom: 12 }}>הוצאות משתנות - השוואה חודשית</h3>
 
             {isTrendLoading ? (
@@ -356,7 +326,7 @@ export default function DashboardPage() {
                   datasets: [
                     {
                       data: trend.map((point) => point.value),
-                      backgroundColor: "rgba(239,68,68,0.85)",
+                      backgroundColor: "rgba(201,168,76,0.8)",
                       borderRadius: 14,
                       borderSkipped: false,
                     },
@@ -381,12 +351,16 @@ export default function DashboardPage() {
                         autoSkip: false,
                         maxRotation: 0,
                         minRotation: 0,
+                        color: "#6b6258",
                       },
+                      grid: { color: "rgba(255,255,255,0.05)" },
                     },
                     y: {
                       ticks: {
+                        color: "#6b6258",
                         callback: (value) => formatILS(Number(value)),
                       },
+                      grid: { color: "rgba(255,255,255,0.05)" },
                     },
                   },
                 }}
@@ -395,7 +369,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="card" style={cardStyle}>
+        <div className="card">
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontWeight: 900 }}>פעילות אחרונה</div>
             <Link className="btn secondary" to="/transactions">
@@ -420,15 +394,14 @@ export default function DashboardPage() {
                   style={{
                     borderLeft:
                       entry.type === "income"
-                        ? "4px solid rgba(34,197,94,0.95)"
+                        ? "4px solid var(--success)"
                         : tone === "fixed"
-                          ? "4px solid rgba(168,85,247,0.95)"
-                          : "4px solid rgba(239,68,68,0.95)",
+                          ? "4px solid var(--primary)"
+                          : "4px solid var(--danger)",
                     borderRadius: 18,
-                    borderTop: "1px solid rgba(15,23,42,0.08)",
-                    borderRight: "1px solid rgba(15,23,42,0.08)",
-                    borderBottom: "1px solid rgba(15,23,42,0.08)",
-                    background: "rgba(255,255,255,0.94)",
+                    border: "1px solid var(--line)",
+                    borderLeftWidth: 4,
+                    background: "rgba(255,255,255,0.03)",
                     padding: 14,
                   }}
                 >
@@ -445,10 +418,10 @@ export default function DashboardPage() {
                         fontWeight: 900,
                         color:
                           entry.type === "income"
-                            ? "rgba(34,197,94,0.95)"
+                            ? "var(--success)"
                             : tone === "fixed"
-                              ? "rgba(168,85,247,0.95)"
-                              : "rgba(239,68,68,0.95)",
+                              ? "var(--primary)"
+                              : "var(--danger)",
                       }}
                     >
                       {entry.type === "income" ? "+" : "-"}
