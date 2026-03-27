@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import AppLayout from "../app/layout/AppLayout";
 import { summarizeMonthlyEntries } from "../domain/analytics";
 import { getEntryLifecycle, getEntryTone, getEntryTypeLabel, getInstallmentLabel, parseAmountInput, sortEntriesByDisplayDate } from "../domain/entries";
-import { deleteEntryRecord, listAvailableMonthKeys, listMonthEntries, updateEntryRecord } from "../services/recordsService";
+import { deleteEntryRecord, listAvailableMonthKeys, listMonthEntries, subscribeRecordsState, updateEntryRecord } from "../services/recordsService";
 import type { EntryDoc } from "../types/models";
 import { currentMonthKey, formatMonthKey, listRecentMonthKeys, monthKeyFromISO, todayISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
@@ -40,6 +40,12 @@ export default function TransactionsPage() {
     () => mergeMonthOptions(listRecentMonthKeys(18, currentMonth, "desc"), availableMonths),
     [availableMonths, currentMonth]
   );
+
+  useEffect(() => {
+    return subscribeRecordsState(() => {
+      setReloadToken((value) => value + 1);
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

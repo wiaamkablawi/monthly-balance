@@ -6,7 +6,7 @@ import AppLayout from "../app/layout/AppLayout";
 import ImportEntriesModal from "../components/entry/ImportEntriesModal";
 import { groupVariableExpensesByCategory, summarizeMonthlyEntries } from "../domain/analytics";
 import { getEntryLifecycle, getEntryTone, getEntryTypeLabel, getInstallmentLabel } from "../domain/entries";
-import { ensureFixedRealizationsForMonth, listAvailableMonthKeys, listMonthEntries, listVariableExpenseTrend } from "../services/recordsService";
+import { ensureFixedRealizationsForMonth, listAvailableMonthKeys, listMonthEntries, listVariableExpenseTrend, subscribeRecordsState } from "../services/recordsService";
 import type { EntryDoc } from "../types/models";
 import { currentMonthKey, formatMonthKey, listRecentMonthKeys, todayISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
@@ -121,6 +121,12 @@ export default function DashboardPage() {
     [availableMonths, currentMonth]
   );
   const trendMonths = useMemo(() => listRecentMonthKeys(6, monthKey, "asc"), [monthKey]);
+
+  useEffect(() => {
+    return subscribeRecordsState(() => {
+      setReloadToken((value) => value + 1);
+    });
+  }, []);
 
   useEffect(() => {
     if (state !== "ready") return;
@@ -520,7 +526,6 @@ export default function DashboardPage() {
           if (savedMonthKey && savedMonthKey !== monthKey) {
             setMonthKey(savedMonthKey);
           }
-          setReloadToken((value) => value + 1);
         }}
       />
     </AppLayout>

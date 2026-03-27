@@ -65,6 +65,7 @@ let cachedAvailableMonthKeysPromise: Promise<string[]> | null = null;
 let cachedFixedTemplatesKey = "";
 let cachedFixedTemplates: LoadedFixedTemplate[] | null = null;
 let cachedFixedTemplatesPromise: Promise<LoadedFixedTemplate[]> | null = null;
+const recordsStateListeners = new Set<() => void>();
 
 function recordsCacheKey(context: SessionContext): string {
   return `${context.uid}:${context.householdId}:${context.email}`;
@@ -95,9 +96,17 @@ function clearFixedTemplatesCache(): void {
   cachedFixedTemplatesPromise = null;
 }
 
+export function subscribeRecordsState(listener: () => void): () => void {
+  recordsStateListeners.add(listener);
+  return () => {
+    recordsStateListeners.delete(listener);
+  };
+}
+
 export function invalidateRecordsState(): void {
   clearRecordsCache();
   clearFixedTemplatesCache();
+  recordsStateListeners.forEach((listener) => listener());
 }
 
 function requireSessionContext(): SessionContext {

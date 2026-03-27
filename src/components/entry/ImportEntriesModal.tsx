@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useState } from "react";
 import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from "firebase/firestore";
+import { ADD_ENTRY_EXPENSE_CATEGORIES, ADD_ENTRY_INCOME_CATEGORIES } from "../../domain/categories";
 import type { EntryDoc } from "../../types/models";
 import { householdIdFromEmail, userKeyFromEmail } from "../../services/authService";
 import { auth } from "../../services/firebase";
@@ -102,6 +103,15 @@ function buildImportFingerprints(input: ImportFingerprintInput): string[] {
 
 function imageImportDocId(householdId: string, hash: string): string {
   return `${householdId}_${hash}`;
+}
+
+function categoryOptionsForRow(type: EntryDoc["type"], currentCategory: string): string[] {
+  const baseOptions: string[] = type === "income" ? [...ADD_ENTRY_INCOME_CATEGORIES] : [...ADD_ENTRY_EXPENSE_CATEGORIES];
+  const normalizedCurrentCategory = String(currentCategory || "").trim();
+  if (!normalizedCurrentCategory || baseOptions.includes(normalizedCurrentCategory)) {
+    return [...baseOptions];
+  }
+  return [normalizedCurrentCategory, ...baseOptions];
 }
 
 async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedFileResult> {
@@ -522,13 +532,30 @@ export default function ImportEntriesModal(props: {
                   </label>
 
                   <div className="import-row-grid">
-                    <select className="input" value={row.type} onChange={(event) => updateRow(row.id, { type: event.target.value as EntryDoc["type"] })}>
+                    <select
+                      className="input"
+                      value={row.type}
+                      onChange={(event) => {
+                        const nextType = event.target.value as EntryDoc["type"];
+                        const nextCategoryOptions = categoryOptionsForRow(nextType, row.category);
+                        updateRow(row.id, {
+                          type: nextType,
+                          category: nextCategoryOptions.includes(row.category) ? row.category : "אחר",
+                        });
+                      }}
+                    >
                       <option value="expense">הוצאה</option>
                       <option value="income">הכנסה</option>
                     </select>
                     <input className="input" type="date" value={row.date} onChange={(event) => updateRow(row.id, { date: event.target.value })} />
                     <input className="input" value={row.amount} onChange={(event) => updateRow(row.id, { amount: event.target.value })} placeholder="סכום" />
-                    <input className="input" value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })} placeholder="קטגוריה" />
+                    <select className="input" value={row.category} onChange={(event) => updateRow(row.id, { category: event.target.value })}>
+                      {categoryOptionsForRow(row.type, row.category).map((option) => (
+                        <option key={`${row.id}-${option}`} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                     <input
                       className="input import-description"
                       value={row.description}
