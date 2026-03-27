@@ -209,12 +209,6 @@ export default function TransactionsPage() {
     }
   }
 
-  const cardStyle = {
-    background: "linear-gradient(180deg, #ffffff, #f8fafc)",
-    borderRadius: 20,
-    boxShadow: "0 30px 60px rgba(0,0,0,0.18)",
-  };
-
   return (
     <AppLayout title="תנועות">
       <div className="page-stack">
@@ -243,7 +237,7 @@ export default function TransactionsPage() {
           </div>
         </div>
 
-        <div className="card" style={cardStyle}>
+        <div className="toolbar-card">
           <div className="row" style={{ gap: 12, alignItems: "flex-end" }}>
             <div className="field-stack" style={{ flex: 2, minWidth: 220 }}>
               <label>חיפוש</label>
@@ -297,7 +291,7 @@ export default function TransactionsPage() {
           </article>
         </section>
 
-        <div className="card" style={cardStyle}>
+        <div className="card">
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontWeight: 900 }}>תנועות</div>
             <div className="muted" style={{ fontSize: 12 }}>הכרטיסיות מתעדכנות לפי החיפוש והסינון הנוכחיים</div>
@@ -316,41 +310,15 @@ export default function TransactionsPage() {
                 const isEditing = editingId === entry.id;
 
                 return (
-                  <div
-                    key={entry.id}
-                    style={{
-                      borderLeft:
-                        entry.type === "income"
-                          ? "4px solid rgba(34,197,94,0.95)"
-                          : tone === "fixed"
-                            ? "4px solid rgba(168,85,247,0.95)"
-                            : "4px solid rgba(239,68,68,0.95)",
-                      borderRadius: 18,
-                      borderTop: "1px solid rgba(15,23,42,0.08)",
-                      borderRight: "1px solid rgba(15,23,42,0.08)",
-                      borderBottom: "1px solid rgba(15,23,42,0.08)",
-                      background: "rgba(255,255,255,0.94)",
-                      padding: 14,
-                    }}
-                  >
+                  <article key={entry.id} className={`ledger-row ${tone}`}>
                     {!isEditing ? (
                       <>
-                        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div className="ledger-top">
                           <div>
-                            <div
-                              style={{
-                                fontWeight: 900,
-                                color:
-                                  entry.type === "income"
-                                    ? "rgba(34,197,94,0.95)"
-                                    : tone === "fixed"
-                                      ? "rgba(168,85,247,0.95)"
-                                      : "rgba(239,68,68,0.95)",
-                              }}
-                            >
+                            <div className="ledger-title">
                               {entry.category || "ללא קטגוריה"} - {formatILS(Number(entry.amount || 0))}
                             </div>
-                            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                            <div className="ledger-subtitle">
                               {getEntryTypeLabel(entry)}
                               {entry.description ? ` · ${entry.description}` : ""}
                             </div>
@@ -366,8 +334,8 @@ export default function TransactionsPage() {
                           </div>
                         </div>
 
-                        <div className="row" style={{ justifyContent: "space-between", gap: 12, marginTop: 8 }}>
-                          <div className="muted" style={{ fontSize: 12 }}>{String(entry.date || "")}</div>
+                        <div className="ledger-meta">
+                          <div className="ledger-date">{String(entry.date || "")}</div>
                           <div className="badge-row">
                             <span className={`status-pill ${tone}`}>{getEntryTypeLabel(entry)}</span>
                             {lifecycle === "scheduled" ? <span className="status-pill warn">מתוזמן</span> : null}
@@ -377,7 +345,7 @@ export default function TransactionsPage() {
                       </>
                     ) : (
                       <>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <div className="form-grid">
                           <div>
                             <label>תאריך</label>
                             <input className="input" type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} />
@@ -411,7 +379,7 @@ export default function TransactionsPage() {
                         </div>
                       </>
                     )}
-                  </div>
+                  </article>
                 );
               })}
             </div>

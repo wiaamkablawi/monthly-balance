@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { collection, doc, writeBatch } from "firebase/firestore";
+import { useNavigate } from "react-router-dom";
 import AppLayout from "../app/layout/AppLayout";
 import ImportEntriesModal from "../components/entry/ImportEntriesModal";
 import {
@@ -10,7 +11,7 @@ import {
 import { householdIdFromEmail, userKeyFromEmail } from "../services/authService";
 import { auth } from "../services/firebase";
 import { db } from "../services/firebaseDb";
-import { saveFixedTemplate } from "../services/recordsService";
+import { invalidateRecordsState, saveFixedTemplate } from "../services/recordsService";
 import type { EntryDoc, EntrySubType, EntryType } from "../types/models";
 import { monthKeyFromISO, todayISO } from "../utils/dates";
 
@@ -43,6 +44,7 @@ function splitAmountToInstallments(total: number, n: number): number[] {
 }
 
 export default function AddEntryPage() {
+  const navigate = useNavigate();
   const [kind, setKind] = useState<EntryKind>("expense_variable");
   const [date, setDate] = useState<string>(todayISO());
   const [category, setCategory] = useState<string>("");
@@ -78,6 +80,10 @@ export default function AddEntryPage() {
     setInstallments(1);
     setChargeDay(1);
     resetMessages();
+  }
+
+  function navigateToUpdatedSummary(targetMonthKey: string) {
+    navigate(`/?month=${encodeURIComponent(targetMonthKey)}`, { replace: true });
   }
 
   function validate(): { amountNumber: number; installmentsNumber: number; chargeDayNumber: number } | null {
@@ -145,12 +151,7 @@ export default function AddEntryPage() {
           startDate: date,
           isActive: true,
         });
-
-        setOk("ההוצאה הקבועה נשמרה כתבנית חודשית ותופיע גם בחודשים הבאים.");
-        setCategory("");
-        setDescription("");
-        setAmount("");
-        setChargeDay(1);
+        navigateToUpdatedSummary(monthKeyFromISO(date));
         return;
       }
 
@@ -184,9 +185,9 @@ export default function AddEntryPage() {
         };
 
         const batch = writeBatch(db);
-        batch.set(doc(collection(db, "records")), payload as any);
+        batch.set(doc(collection(db, "records")), payload);
         await batch.commit();
-        setOk("התנועה נשמרה בהצלחה.");
+        invalidateRecordsState();
       } else {
         const installmentsAmounts = splitAmountToInstallments(validated.amountNumber, validated.installmentsNumber);
         const [year, month, day] = date.split("-").map(Number);
@@ -219,40 +220,39 @@ export default function AddEntryPage() {
             chargeDay: validated.chargeDayNumber,
           };
 
-          batch.set(doc(collection(db, "records")), payload as any);
+          batch.set(doc(collection(db, "records")), payload);
         }
 
         await batch.commit();
-        setOk(`התנועה נשמרה בהצלחה ונוצרו ${validated.installmentsNumber} תשלומים.`);
+        invalidateRecordsState();
       }
 
-      setCategory("");
-      setDescription("");
-      setAmount("");
-      setInstallments(1);
-      setChargeDay(1);
+      navigateToUpdatedSummary(monthKeyFromISO(date));
     } catch (error: any) {
-      setErr(error?.message || "אירעה שגיאה בשמירת התנועה. בדוק הרשאות Firestore.");
+      setErr(error?.message || "אירעה שגיאה בשמירת התנועה. בדוק הרשאות Firestore ונסה שוב.");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <AppLayout title="קליטה" subtitle="הזנה ידנית או ממצלמה, עם תמיכה בתשלומים ופיצול אוטומטי.">
+    <AppLayout
+      title="קליטת תנועה"
+      subtitle="אפשר להזין ידנית, להגדיר הוצאה קבועה או לפצל רכישה לתשלומים. במסך הייבוא אפשר גם לפרק קובץ או צילום מסך לשורות לפני שמירה."
+    >
       <div className="page-stack">
-        <div className="card">
+        <section className="card">
           <div className="section-header compact">
             <div>
               <div className="section-title">ייבוא קובץ או צילום מסך</div>
-              <div className="section-subtitle">המערכת תפרק צילום מסך של טבלת עסקאות לשורות בודדות, תציג אותן לאישור, ורק אז תשמור.</div>
+              <div className="section-subtitle">המערכת מפרקת קובץ או תמונה לשורות עריכה, ורק אחרי אישור הן נשמרות למסד.</div>
             </div>
           </div>
 
-          <div className="grid" style={{ gap: 10 }}>
-            <div className="muted text-small">תומך ב־CSV, Excel, PDF ותמונות. בצילומי מסך של עסקאות מתבצע OCR עם preview לפני שמירה.</div>
+          <div className="grid">
+            <div className="muted text-small">נתמכים CSV, Excel, PDF ותמונות. בצילומי מסך של טבלאות עסקאות מתבצע OCR עם preview לפני שמירה.</div>
             <div className="toolbar-actions" style={{ justifyContent: "space-between" }}>
-              <div className="muted text-small">הייבוא החדש לא מוסיף שורות ישר למסד, אלא עובר קודם למסך בדיקה.</div>
+              <div className="muted text-small">הייבוא החדש לא מכניס נתונים ישירות, אלא עובר קודם דרך מסך בקרה.</div>
               <button
                 className="btn secondary"
                 type="button"
@@ -266,19 +266,19 @@ export default function AddEntryPage() {
               </button>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="card">
+        <section className="card">
           <div className="section-header compact">
             <div>
-              <div className="section-title">הוספה ידנית</div>
-              <div className="section-subtitle">תנועה בודדת, הוצאה קבועה חודשית או הוצאה בתשלומים.</div>
+              <div className="section-title">הזנה ידנית</div>
+              <div className="section-subtitle">תנועה בודדת, הוצאה קבועה חודשית או הוצאה בתשלומים, באותו טופס עבודה.</div>
             </div>
           </div>
 
-          <form onSubmit={onSubmit} className="grid" style={{ gap: 12 }}>
+          <form onSubmit={onSubmit} className="grid">
             <div className="form-grid">
-              <div className="grid" style={{ gap: 6 }}>
+              <div className="grid">
                 <label>סוג</label>
                 <select
                   className="input"
@@ -299,14 +299,14 @@ export default function AddEntryPage() {
                 </select>
               </div>
 
-              <div className="grid" style={{ gap: 6 }}>
+              <div className="grid">
                 <label>{kind === "expense_fixed" ? "תאריך התחלה" : "תאריך"}</label>
                 <input className="input" type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={saving} />
               </div>
             </div>
 
             <div className="form-grid">
-              <div className="grid" style={{ gap: 6 }}>
+              <div className="grid">
                 <label>קטגוריה</label>
                 <select className="input" value={category} onChange={(event) => setCategory(event.target.value)} disabled={saving}>
                   <option value="">בחר קטגוריה</option>
@@ -318,7 +318,7 @@ export default function AddEntryPage() {
                 </select>
               </div>
 
-              <div className="grid" style={{ gap: 6 }}>
+              <div className="grid">
                 <label>סכום</label>
                 <input
                   className="input"
@@ -333,7 +333,7 @@ export default function AddEntryPage() {
 
             {showInstallments ? (
               <div className="form-grid">
-                <div className="grid" style={{ gap: 6 }}>
+                <div className="grid">
                   <label>מספר תשלומים</label>
                   <input
                     className="input"
@@ -346,7 +346,7 @@ export default function AddEntryPage() {
                   />
                 </div>
 
-                <div className="grid" style={{ gap: 6 }}>
+                <div className="grid">
                   <label>יום חיוב</label>
                   <input
                     className="input"
@@ -362,7 +362,7 @@ export default function AddEntryPage() {
             ) : null}
 
             {!showInstallments && showChargeDay ? (
-              <div className="grid" style={{ gap: 6 }}>
+              <div className="grid">
                 <label>יום חיוב חודשי</label>
                 <input
                   className="input"
@@ -377,24 +377,24 @@ export default function AddEntryPage() {
             ) : null}
 
             {kind === "expense_variable" ? (
-              <div className="muted text-small">
-                התשלום הראשון נרשם בתאריך שבחרת. תשלומים 2 ומעלה ייפרשו אוטומטית לפי יום החיוב בחודשים הבאים.
+              <div className="note-banner">
+                התשלום הראשון יישמר בתאריך שבחרת. אם הזנת יותר מתשלום אחד, המערכת תייצר אוטומטית את יתר התשלומים לפי יום החיוב שבחרת.
               </div>
             ) : null}
 
             {kind === "expense_fixed" ? (
               <div className="note-banner">
-                הוצאה קבועה נשמרת כתבנית חודשית. מהחודש שנבחר והלאה המערכת תיצור את החיוב אוטומטית בדוחות וביומן.
+                הוצאה קבועה נשמרת כתבנית חודשית. מהחודש שנבחר והלאה המערכת תוכל לייצר חיובים אוטומטיים בדשבורד וביומן.
               </div>
             ) : null}
 
-            <div className="grid" style={{ gap: 6 }}>
+            <div className="grid">
               <label>תיאור</label>
               <input
                 className="input"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="לדוגמה: ועד בית או מנוי אינטרנט"
+                placeholder='לדוגמה: ועד בית או מנוי אינטרנט'
                 disabled={saving}
               />
             </div>
@@ -404,7 +404,7 @@ export default function AddEntryPage() {
 
             <div className="toolbar-actions" style={{ justifyContent: "space-between" }}>
               <button className="btn" type="submit" disabled={saving}>
-                {saving ? "שומר..." : kind === "expense_fixed" ? "שמור הוצאה קבועה" : "שמור"}
+                {saving ? "שומר..." : kind === "expense_fixed" ? "שמור הוצאה קבועה" : "שמור תנועה"}
               </button>
 
               <button className="btn secondary" type="button" disabled={saving} onClick={resetForm}>
@@ -412,7 +412,7 @@ export default function AddEntryPage() {
               </button>
             </div>
           </form>
-        </div>
+        </section>
       </div>
 
       <ImportEntriesModal
@@ -420,10 +420,7 @@ export default function AddEntryPage() {
         onClose={() => setIsImportOpen(false)}
         monthKey={monthKeyFromISO(date)}
         defaultDateISO={date || todayISO()}
-        onSaved={() => {
-          setErr("");
-          setOk("הייבוא הושלם. אפשר לעבור ליומן התנועות כדי לבדוק את הרשומות החדשות.");
-        }}
+        onSaved={(savedMonthKey) => navigateToUpdatedSummary(savedMonthKey)}
       />
     </AppLayout>
   );
