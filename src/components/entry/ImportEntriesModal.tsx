@@ -5,6 +5,7 @@ import { householdIdFromEmail, userKeyFromEmail } from "../../services/authServi
 import { auth } from "../../services/firebase";
 import { db } from "../../services/firebaseDb";
 import { parseImageFileToExpenses } from "../../services/imageOcrService";
+import { invalidateRecordsState } from "../../services/recordsService";
 import { monthKeyFromISO } from "../../utils/dates";
 
 type ParsedImportRow = {
@@ -63,10 +64,10 @@ function toISODateString(value: unknown, fallbackISO: string): string {
 
 function detectTypeFromRaw(typeRaw: string, amount: number): EntryDoc["type"] {
   const normalized = typeRaw.trim().toLowerCase();
-  if (normalized.includes("income") || normalized.includes("credit") || normalized.includes("?????") || normalized.includes("?????")) {
+  if (normalized.includes("income") || normalized.includes("credit") || normalized.includes("זיכוי") || normalized.includes("הכנסה")) {
     return "income";
   }
-  if (normalized.includes("expense") || normalized.includes("debit") || normalized.includes("?????") || normalized.includes("????")) {
+  if (normalized.includes("expense") || normalized.includes("debit") || normalized.includes("הוצאה") || normalized.includes("חובה")) {
     return "expense";
   }
   return amount >= 0 ? "income" : "expense";
@@ -114,34 +115,34 @@ async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedF
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "" });
     const parsedRows = rows
       .map((row, index): ParsedImportRow | null => {
-        const debitAmount = parseImportedAmount(row["????"] ?? row.debit ?? row.Debit);
-        const creditAmount = parseImportedAmount(row["?????"] ?? row.credit ?? row.Credit);
+        const debitAmount = parseImportedAmount(row["חובה"] ?? row.debit ?? row.Debit);
+        const creditAmount = parseImportedAmount(row["זיכוי"] ?? row.credit ?? row.Credit);
         const amountRaw =
           row.amount ||
           row.Amount ||
           row.sum ||
           row.Total ||
-          row["????"] ||
-          row["????"] ||
-          row["?????"];
+          row["חובה"] ||
+          row["סכום"] ||
+          row["זיכוי"];
 
         const numericAmount = debitAmount || creditAmount || parseImportedAmount(amountRaw);
         if (!Number.isFinite(numericAmount) || numericAmount === 0) return null;
 
-        const dateRaw = row.date || row.Date || row["?????"];
-        const descriptionRaw = row.description || row.Description || row.details || row["?????"] || "";
-        const categoryRaw = row.category || row.Category || row["???????"] || "???";
-        const typeRaw = row.type || row.Type || row["???"] || "";
+        const dateRaw = row.date || row.Date || row["תאריך"];
+        const descriptionRaw = row.description || row.Description || row.details || row["תיאור"] || "";
+        const categoryRaw = row.category || row.Category || row["קטגוריה"] || "אחר";
+        const typeRaw = row.type || row.Type || row["סוג"] || "";
         const resolvedTypeRaw =
-          debitAmount && !creditAmount ? "????" : creditAmount && !debitAmount ? "?????" : String(typeRaw || "");
+          debitAmount && !creditAmount ? "חובה" : creditAmount && !debitAmount ? "זיכוי" : String(typeRaw || "");
         const typeAmount = debitAmount && !creditAmount ? -numericAmount : numericAmount;
 
         return {
           id: `${file.name}-${index}-${Math.random().toString(16).slice(2)}`,
           type: detectTypeFromRaw(resolvedTypeRaw, typeAmount),
           date: toISODateString(dateRaw, fallbackISO),
-          category: String(categoryRaw || "???").trim(),
-          description: String(descriptionRaw || "").trim() || "????? ????",
+          category: String(categoryRaw || "אחר").trim(),
+          description: String(descriptionRaw || "").trim() || "תיאור כללי",
           amount: String(numericAmount),
           selected: true,
           importSource: `file:${file.name}`,
@@ -163,7 +164,7 @@ async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedF
     const parsed = await parseImageFileToExpenses(file);
     const rows = parsed.expenses.map((expense, index) => ({
       id: `${file.name}-${index}-${Math.random().toString(16).slice(2)}`,
-      type: "expense" as const,
+      type: (expense.rawType === "income" ? "income" : "expense") as EntryDoc["type"],
       date: expense.date,
       category: expense.category,
       description: expense.description,
@@ -223,7 +224,7 @@ export default function ImportEntriesModal(props: {
   onClose: () => void;
   monthKey: string;
   defaultDateISO: string;
-  onSaved: () => void;
+  onSaved: (savedMonthKey: string) => void;
 }) {
   const { open, onClose, monthKey, defaultDateISO, onSaved } = props;
   const [rows, setRows] = useState<ParsedImportRow[]>([]);
@@ -444,6 +445,7 @@ export default function ImportEntriesModal(props: {
       });
 
       await batch.commit();
+      invalidateRecordsState();
 
       if (importMarkerRef && importSession?.imageHash) {
         await setDoc(importMarkerRef, {
@@ -459,7 +461,7 @@ export default function ImportEntriesModal(props: {
         });
       }
 
-      onSaved();
+      onSaved(rowsToSave[0]?.monthKey || monthKey);
       onClose();
     } catch (error: any) {
       setErrorMessage(error?.message || "אירעה שגיאה בשמירת הרשומות.");

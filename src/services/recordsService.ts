@@ -95,6 +95,11 @@ function clearFixedTemplatesCache(): void {
   cachedFixedTemplatesPromise = null;
 }
 
+export function invalidateRecordsState(): void {
+  clearRecordsCache();
+  clearFixedTemplatesCache();
+}
+
 function requireSessionContext(): SessionContext {
   if (!isFirebaseConfigured) {
     throw new Error(getFirebaseConfigurationError());
@@ -1361,15 +1366,13 @@ export async function updateEntryRecord(
     updatedBy: context.email,
   });
 
-  clearRecordsCache();
-  clearFixedTemplatesCache();
+  invalidateRecordsState();
 }
 
 export async function deleteEntryRecord(entryId: string): Promise<void> {
   requireSessionContext();
   await deleteDoc(doc(db, "records", entryId));
-  clearRecordsCache();
-  clearFixedTemplatesCache();
+  invalidateRecordsState();
 }
 
 
