@@ -13,16 +13,21 @@ permissions:
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+    env:
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
 
       - name: Install web dependencies
         run: npm ci
@@ -54,23 +59,12 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Prepare Firebase credentials
-        run: |
-          cat > "$RUNNER_TEMP/firebase-service-account.json" << 'EOF'
-          ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MONTHLY_BALANCE }}
-          EOF
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
-
       - name: Deploy backend config (rules, storage)
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: npx firebase-tools deploy --only firestore:rules,storage --project monthly-balance-548d1 --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Deploy Cloud Function ocrParse (non-blocking)
         id: deploy_function
         continue-on-error: true
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: npx firebase-tools deploy --only functions:ocrParse --project monthly-balance-548d1 --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Warn when Cloud Function deployment fails
@@ -80,8 +74,6 @@ jobs:
       - name: Deploy Firestore indexes (non-blocking)
         id: deploy_indexes
         continue-on-error: true
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
         run: npx firebase-tools deploy --only firestore:indexes --project monthly-balance-548d1 --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Warn when Firestore indexes deployment fails
@@ -97,9 +89,9 @@ jobs:
           fi
 
       - name: Deploy Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
-          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_MONTHLY_BALANCE }}"
-          projectId: "monthly-balance-548d1"
-          channelId: "${{ env.CHANNEL_ID }}"
+        run: |
+          if [ "$CHANNEL_ID" = "live" ]; then
+            npx firebase-tools deploy --only hosting --project monthly-balance-548d1 --non-interactive --token "$FIREBASE_TOKEN"
+          else
+            npx firebase-tools hosting:channel:deploy "$CHANNEL_ID" --project monthly-balance-548d1 --expires 7d --non-interactive --token "$FIREBASE_TOKEN"
+          fi
