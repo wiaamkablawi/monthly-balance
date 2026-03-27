@@ -44,13 +44,10 @@ jobs:
 
       - name: Inject Functions envs
         env:
-          OCR_SPACE_API_KEY: ${{ secrets.OCR_SPACE_API_KEY }}
           ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}
         run: |
-          normalized_ocr_api_key="$(printf '%s' "$OCR_SPACE_API_KEY" | tr -d '\r\n' | sed -E "s/^[[:space:]]*[0-9]+[.)][[:space:]]*//; s/[\"'[:space:]]//g")"
           normalized_allowed_emails="$(printf '%s' "$ALLOWED_EMAILS" | tr '\r\n' ',,' | sed -E "s/^[[:space:]]*const[[:space:]]+allowedEmails[[:space:]]*=[[:space:]]*//I; s/[\"']//g; s/[[:space:]]//g; s/,,*/,/g; s/^,*//; s/,*$//")"
           {
-            printf 'OCR_SPACE_API_KEY=%s\n' "$normalized_ocr_api_key"
             printf 'ALLOWED_EMAILS=%s\n' "$normalized_allowed_emails"
           } > functions/.env
 
@@ -65,12 +62,16 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-service-account.json" >> "$GITHUB_ENV"
 
       - name: Deploy backend config (rules, storage)
-        run: npx firebase-tools deploy --only firestore:rules,storage --project monthly-balance-548d1 --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx firebase-tools deploy --only firestore:rules,storage --project monthly-balance-548d1 --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Deploy Cloud Function ocrParse (non-blocking)
         id: deploy_function
         continue-on-error: true
-        run: npx firebase-tools deploy --only functions:ocrParse --project monthly-balance-548d1 --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx firebase-tools deploy --only functions:ocrParse --project monthly-balance-548d1 --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Warn when Cloud Function deployment fails
         if: ${{ steps.deploy_function.outcome == 'failure' }}
@@ -79,7 +80,9 @@ jobs:
       - name: Deploy Firestore indexes (non-blocking)
         id: deploy_indexes
         continue-on-error: true
-        run: npx firebase-tools deploy --only firestore:indexes --project monthly-balance-548d1 --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx firebase-tools deploy --only firestore:indexes --project monthly-balance-548d1 --non-interactive --token "$FIREBASE_TOKEN"
 
       - name: Warn when Firestore indexes deployment fails
         if: ${{ steps.deploy_indexes.outcome == 'failure' }}
