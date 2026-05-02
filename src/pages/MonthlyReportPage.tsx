@@ -183,6 +183,14 @@ function TopCategoriesChart(props: { entries: EntryDoc[] }) {
   );
 }
 
+const HEBREW_DAYS_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+
+function dayOfWeekLabel(monthKey: string, dayIndex: number): string {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(year, month - 1, dayIndex + 1);
+  return HEBREW_DAYS_SHORT[date.getDay()];
+}
+
 function DailyChart(props: { entries: EntryDoc[]; monthKey: string }) {
   const dailyValues = useMemo(
     () => dailyVariableExpenses(props.entries, props.monthKey),
@@ -196,7 +204,7 @@ function DailyChart(props: { entries: EntryDoc[]; monthKey: string }) {
     return <div className="mb-report-empty">לא נרשמו הוצאות משתנות עם תאריך יומי</div>;
 
   const data = {
-    labels: dailyValues.map((_, index) => String(index + 1)),
+    labels: dailyValues.map((_, index) => [String(index + 1), dayOfWeekLabel(props.monthKey, index)]),
     datasets: [
       {
         label: "הוצאות משתנות יומיות",
@@ -215,7 +223,11 @@ function DailyChart(props: { entries: EntryDoc[]; monthKey: string }) {
       tooltip: {
         rtl: true,
         callbacks: {
-          title: (items: any[]) => `יום ${items[0]?.label || ""}`,
+          title: (items: any[]) => {
+            const raw = items[0]?.label;
+            const day = Array.isArray(raw) ? raw[0] : raw;
+            return `יום ${day || ""}`;
+          },
           label: (ctx: any) => formatILS(Number(ctx.raw || 0)),
         },
       },
