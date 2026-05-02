@@ -1,6 +1,6 @@
 import React from "react";
 
-type IconName = "dashboard" | "plus" | "journal" | "settings" | "search" | "help" | "bell" | "logout";
+type IconName = "dashboard" | "plus" | "journal" | "report" | "settings" | "search" | "help" | "bell" | "logout";
 
 export default function AppIcon(props: { name: IconName; className?: string }) {
   const { name, className } = props;
@@ -29,6 +29,15 @@ export default function AppIcon(props: { name: IconName; className?: string }) {
           <path d="M7.5 16V9.5" />
           <path d="M12 16V5.5" />
           <path d="M16.5 16v-4" />
+        </svg>
+      );
+    case "report":
+      return (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="3" width="16" height="18" rx="2" />
+          <path d="M8 7h8" />
+          <path d="M8 11h8" />
+          <path d="M8 15h5" />
         </svg>
       );
     case "settings":

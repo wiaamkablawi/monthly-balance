@@ -7,6 +7,7 @@ const items: Array<{ key: RouteKey; icon: React.ComponentProps<typeof AppIcon>["
   { key: "dashboard", icon: "dashboard" },
   { key: "add", icon: "plus" },
   { key: "transactions", icon: "journal" },
+  { key: "report", icon: "report" },
   { key: "settings", icon: "settings" },
 ];
 
@@ -14,6 +15,7 @@ const mobileItems: Array<{ key: RouteKey; emoji: string; label: string }> = [
   { key: "dashboard", emoji: "🏠", label: "דשבורד" },
   { key: "add", emoji: "➕", label: "הוסף" },
   { key: "transactions", emoji: "📊", label: "גרפים" },
+  { key: "report", emoji: "📄", label: "דו״ח" },
   { key: "settings", emoji: "⚙️", label: "הגדרות" },
 ];
 

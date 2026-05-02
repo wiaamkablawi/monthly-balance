@@ -20,6 +20,7 @@ const navItems: Array<{ key: RouteKey; icon: React.ComponentProps<typeof AppIcon
   { key: "dashboard", icon: "dashboard" },
   { key: "add", icon: "plus" },
   { key: "transactions", icon: "journal" },
+  { key: "report", icon: "report" },
   { key: "settings", icon: "settings" },
 ];
 

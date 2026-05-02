@@ -119,6 +119,15 @@ export default function App() {
         />
 
         <Route
+          path="/report"
+          element={
+            <Protected ready={authReady} user={user}>
+              <MonthlyReportPage />
+            </Protected>
+          }
+        />
+
+        <Route
           path="/settings"
           element={
             <Protected ready={authReady} user={user}>
