@@ -98,7 +98,7 @@ service cloud.firestore {
     }
 
     match /fixed_templates/{templateId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && isAllowedEmail();
 
       allow create: if signedIn()
         && isAllowedEmail()
@@ -118,7 +118,7 @@ service cloud.firestore {
     }
 
     match /imageImports/{docId} {
-      allow read: if canAccessHouseholdDoc(resource.data);
+      allow read: if signedIn() && isAllowedEmail();
 
       allow create: if signedIn()
         && isAllowedEmail()

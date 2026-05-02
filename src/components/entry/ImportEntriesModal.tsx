@@ -174,7 +174,7 @@ async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedF
     const parsed = await parseImageFileToExpenses(file);
     const rows = parsed.expenses.map((expense, index) => ({
       id: `${file.name}-${index}-${Math.random().toString(16).slice(2)}`,
-      type: (expense.rawType === "income" ? "income" : "expense") as EntryDoc["type"],
+      type: detectTypeFromRaw(expense.rawType, expense.rawType === "income" ? expense.amount : -expense.amount),
       date: expense.date,
       category: expense.category,
       description: expense.description,
@@ -243,6 +243,7 @@ export default function ImportEntriesModal(props: {
   const [errorMessage, setErrorMessage] = useState("");
   const [note, setNote] = useState("");
   const [importSession, setImportSession] = useState<ImportSession | null>(null);
+  const selectedCount = rows.filter((row) => row.selected).length;
 
   useEffect(() => {
     if (!open) return;
@@ -510,6 +511,12 @@ export default function ImportEntriesModal(props: {
 
         {rows.length ? (
           <>
+            <div className="note-banner" style={{ marginTop: 16 }}>
+              כל העסקאות מסומנות כברירת מחדל. אפשר להסיר סימון מעסקאות שלא רוצים לשמור.
+              <br />
+              מסומנות כרגע {selectedCount} מתוך {rows.length} עסקאות.
+            </div>
+
             <div className="toolbar-actions" style={{ marginTop: 16 }}>
               <button className="btn secondary" type="button" onClick={() => selectAll(true)} disabled={loading || saving}>
                 בחר הכל
@@ -521,14 +528,14 @@ export default function ImportEntriesModal(props: {
 
             <div className="import-grid">
               {rows.map((row) => (
-                <div key={row.id} className="import-row">
+                <div key={row.id} className={`import-row ${row.selected ? "selected" : "unselected"}`}>
                   <label className="check-row">
                     <input
                       type="checkbox"
                       checked={row.selected}
                       onChange={(event) => updateRow(row.id, { selected: event.target.checked })}
                     />
-                    <span>לשמירה</span>
+                    <span>שמור עסקה זו</span>
                   </label>
 
                   <div className="import-row-grid">

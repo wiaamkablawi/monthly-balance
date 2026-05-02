@@ -7,6 +7,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    define: {
+      __APP_BUILD__: JSON.stringify(
+        new Date().toISOString().slice(0, 16).replace("T", " ")
+      ),
+    },
     server: {
       port: 5173,
       proxy: {

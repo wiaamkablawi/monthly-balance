@@ -10,7 +10,36 @@ const items: Array<{ key: RouteKey; icon: React.ComponentProps<typeof AppIcon>["
   { key: "settings", icon: "settings" },
 ];
 
-export default function BottomNav() {
+const mobileItems: Array<{ key: RouteKey; emoji: string; label: string }> = [
+  { key: "dashboard", emoji: "🏠", label: "דשבורד" },
+  { key: "add", emoji: "➕", label: "הוסף" },
+  { key: "transactions", emoji: "📊", label: "גרפים" },
+  { key: "settings", emoji: "⚙️", label: "הגדרות" },
+];
+
+export default function BottomNav(props: { variant?: "default" | "mobile" } = {}) {
+  const variant = props.variant || "default";
+
+  if (variant === "mobile") {
+    return (
+      <nav className="mb-bottom-nav" aria-label="ניווט תחתון">
+        <div className="mb-bottom-nav-inner">
+          {mobileItems.map((item) => (
+            <NavLink
+              key={item.key}
+              to={routes[item.key].path}
+              end={item.key === "dashboard"}
+              className={({ isActive }) => `mb-tab${isActive ? " active" : ""}`}
+            >
+              <div className="mb-tab-ico">{item.emoji}</div>
+              <div className="mb-tab-lbl">{item.label}</div>
+            </NavLink>
+          ))}
+        </div>
+      </nav>
+    );
+  }
+
   return (
     <nav className="bottom-nav" aria-label="ניווט תחתון">
       <div className="bottom-nav-inner">

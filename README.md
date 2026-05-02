@@ -32,7 +32,8 @@
 - `VITE_FIREBASE_MESSAGING_SENDER_ID`
 - `VITE_FIREBASE_APP_ID`
 - `VITE_OCR_PARSE_ENDPOINT` (אופציונלי; ברירת מחדל: `/api/ocr/parse`)
-- `OCR_SPACE_API_KEY` (נדרש עבור פונקציית OCR בצד שרת)
+- `OPENAI_API_KEY` (אופציונלי ומומלץ; מפעיל Vision extraction עבור צילומי מסך וטבלאות)
+- `OCR_SPACE_API_KEY` (אופציונלי כ-fallback עבור OCR קלאסי בצד שרת)
 - `ALLOWED_EMAILS` (רשימת אימיילים מופרדת בפסיקים עבור הרשאה לפונקציית OCR)
 
 ׳׳ ׳׳—׳“ ׳׳”׳ ׳—׳¡׳¨, ׳”׳׳₪׳׳™׳§׳¦׳™׳” ׳×׳¢׳׳” ׳׳‘׳ ׳”׳×׳—׳‘׳¨׳•׳× Google ׳×׳™׳©׳׳¨ ׳׳•׳©׳‘׳×׳×.
@@ -71,4 +72,6 @@ git push
 2. ׳‘׳“׳§׳™ ׳׳× ׳”׳׳•׳’׳™׳ ׳©׳ ׳”׳©׳׳‘ "Deploy to Firebase Hosting".
 3. ׳•׳“׳׳™ ׳©׳”-Secret `FIREBASE_SERVICE_ACCOUNT_MONTHLY_BALANCE` ׳×׳§׳™׳ ׳•׳׳ ׳”׳•׳¡׳¨.
 4. ׳•׳“׳׳™ ׳©׳›׳ `VITE_FIREBASE_*` ׳׳•׳’׳“׳¨׳™׳ ׳‘-Secrets ׳›׳“׳™ ׳©׳”-build ׳™׳§׳‘׳ ׳§׳•׳ ׳₪׳™׳’׳•׳¨׳¦׳™׳™׳× Firebase ׳׳׳׳”.
+
+
 
