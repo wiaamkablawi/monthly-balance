@@ -344,13 +344,17 @@ export default function DashboardPage() {
           <div className="mb-hero-amt">₪{formatHeroAmount(balance)}</div>
           <div className="mb-hero-sub">{heroSubtitle}</div>
           <div className="mb-hero-row">
-            <div className="mb-hero-half">
+            <div className="mb-hero-third">
               <div className="mb-hero-hlbl">הכנסות</div>
               <div className="mb-hero-hval">{formatCompactILS(totalIncome)}</div>
             </div>
-            <div className="mb-hero-half">
-              <div className="mb-hero-hlbl">הוצאות</div>
-              <div className="mb-hero-hval">{formatCompactILS(totalExpenses)}</div>
+            <div className="mb-hero-third">
+              <div className="mb-hero-hlbl">הוצ׳ קבועות</div>
+              <div className="mb-hero-hval">{formatCompactILS(summary.totals.fixed)}</div>
+            </div>
+            <div className="mb-hero-third">
+              <div className="mb-hero-hlbl">הוצ׳ משתנות</div>
+              <div className="mb-hero-hval">{formatCompactILS(summary.totals.variable)}</div>
             </div>
           </div>
         </section>

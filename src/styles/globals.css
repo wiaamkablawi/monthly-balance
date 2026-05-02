@@ -1551,6 +1551,17 @@ label {
   margin-right: 14px;
 }
 
+.mb-hero-third {
+  flex: 1;
+  min-width: 0;
+}
+
+.mb-hero-third + .mb-hero-third {
+  border-right: 1px solid rgba(255, 255, 255, 0.3);
+  padding-right: 10px;
+  margin-right: 10px;
+}
+
 .mb-hero-hlbl {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.65);
