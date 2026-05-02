@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Chart as ChartJS,
@@ -140,10 +140,35 @@ function CompositionChart(props: { summary: MonthlySummary }) {
   );
 }
 
+const categoryValueLabelPlugin = {
+  id: "categoryValueLabel",
+  afterDatasetsDraw(chart: any) {
+    const { ctx, scales } = chart;
+    const dataset = chart.data.datasets[0];
+    if (!dataset) return;
+    ctx.save();
+    chart.getDatasetMeta(0).data.forEach((bar: any, i: number) => {
+      const value = dataset.data[i] as number;
+      if (!value) return;
+      const text = formatILS(value);
+      ctx.font = "bold 11px Rubik, Arial";
+      ctx.fillStyle = "#4A3020";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      const x = scales.x.getPixelForValue(value) + 6;
+      const y = bar.y;
+      ctx.fillText(text, x, y);
+    });
+    ctx.restore();
+  },
+};
+
 function TopCategoriesChart(props: { entries: EntryDoc[] }) {
   const groups = useMemo(() => topExpenseCategories(props.entries, 8), [props.entries]);
 
   if (groups.length === 0) return <div className="mb-report-empty">אין הוצאות בחודש זה</div>;
+
+  const maxValue = Math.max(...groups.map((g) => g.value), 1);
 
   const data = {
     labels: groups.map((group) => group.category),
@@ -161,6 +186,7 @@ function TopCategoriesChart(props: { entries: EntryDoc[] }) {
     indexAxis: "y" as const,
     responsive: true,
     maintainAspectRatio: false,
+    layout: { padding: { right: 90 } },
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -171,14 +197,18 @@ function TopCategoriesChart(props: { entries: EntryDoc[] }) {
       },
     },
     scales: {
-      x: { ticks: { font: { family: "Rubik" }, callback: (val: any) => `₪${val}` } },
+      x: {
+        max: maxValue * 1.35,
+        ticks: { font: { family: "Rubik" }, callback: (val: any) => `₪${val}` },
+        grid: { display: false },
+      },
       y: { ticks: { font: { family: "Rubik" } } },
     },
   };
 
   return (
     <div className="mb-chart-wrap tall">
-      <Bar data={data} options={options} />
+      <Bar data={data} options={options} plugins={[categoryValueLabelPlugin]} />
     </div>
   );
 }
@@ -385,6 +415,37 @@ function CategoryBreakdownTable(props: { rows: CategoryTableRow[] }) {
   );
 }
 
+async function exportReportToPdf(element: HTMLElement, fileName: string) {
+  const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+    import("jspdf"),
+    import("html2canvas"),
+  ]);
+
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    useCORS: true,
+    backgroundColor: "#ffffff",
+    scrollY: -window.scrollY,
+    windowWidth: element.scrollWidth,
+    windowHeight: element.scrollHeight,
+  });
+
+  const imgData = canvas.toDataURL("image/jpeg", 0.92);
+  const pageW = 210; // A4 mm
+  const pageH = 297;
+  const imgW = pageW;
+  const imgH = (canvas.height / canvas.width) * imgW;
+
+  const pdf = new jsPDF({ orientation: imgH > pageW ? "p" : "l", unit: "mm", format: "a4" });
+  let y = 0;
+  while (y < imgH) {
+    if (y > 0) pdf.addPage();
+    pdf.addImage(imgData, "JPEG", 0, -y, imgW, imgH);
+    y += pageH;
+  }
+  pdf.save(fileName);
+}
+
 export default function MonthlyReportPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const fallbackMonth = currentMonthKey();
@@ -397,6 +458,8 @@ export default function MonthlyReportPage() {
   const [previousEntries, setPreviousEntries] = useState<EntryDoc[]>([]);
   const [state, setState] = useState<LoadState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
 
   const monthOptions = useMemo(
     () => listRecentMonthKeys(18, fallbackMonth, "desc"),
@@ -470,6 +533,18 @@ export default function MonthlyReportPage() {
     window.print();
   };
 
+  const handleExportPdf = async () => {
+    if (!reportRef.current || pdfExporting) return;
+    setPdfExporting(true);
+    try {
+      await exportReportToPdf(reportRef.current, `דוח-חודשי-${monthKey}.pdf`);
+    } catch (err: any) {
+      alert(err?.message || "שגיאה בייצוא PDF");
+    } finally {
+      setPdfExporting(false);
+    }
+  };
+
   const handleExport = async () => {
     try {
       await exportMonthlyReportToExcel({
@@ -487,7 +562,7 @@ export default function MonthlyReportPage() {
 
   return (
     <>
-      <div className="mb-report">
+      <div className="mb-report" ref={reportRef}>
         <header className="mb-report-header">
           <div>
             <div className="mb-report-title">דו״ח חודשי · {monthLabel}</div>
@@ -513,6 +588,9 @@ export default function MonthlyReportPage() {
             </button>
             <button type="button" className="mb-report-btn primary" onClick={handleExport}>
               📥 ייצוא Excel
+            </button>
+            <button type="button" className="mb-report-btn primary" onClick={handleExportPdf} disabled={pdfExporting}>
+              {pdfExporting ? "מייצא…" : "📄 ייצוא PDF"}
             </button>
             <Link to="/" className="mb-report-btn ghost">
               ← לדשבורד
