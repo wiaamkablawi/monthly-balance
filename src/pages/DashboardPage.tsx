@@ -4,7 +4,6 @@ import BottomNav from "../components/BottomNav";
 import ImportEntriesModal from "../components/entry/ImportEntriesModal";
 import { groupVariableExpensesByCategory, summarizeMonthlyEntries } from "../domain/analytics";
 import {
-  ensureFixedRealizationsForMonth,
   listAvailableMonthKeys,
   listMonthEntries,
   listVariableExpenseTrend,
@@ -216,7 +215,7 @@ export default function DashboardPage() {
       setTrend([]);
 
       try {
-        const monthEntries = await listMonthEntries(monthKey, { ensureFixedRealizations: false });
+        const monthEntries = await listMonthEntries(monthKey);
         if (cancelled) return;
         setEntries(monthEntries);
         setState("ready");
@@ -228,17 +227,6 @@ export default function DashboardPage() {
         setErrorMessage(error?.message || "לא הצלחנו לטעון את הסקירה החודשית.");
         return;
       }
-
-      void (async () => {
-        try {
-          const created = await ensureFixedRealizationsForMonth(monthKey);
-          if (cancelled || created === 0) return;
-          const refreshed = await listMonthEntries(monthKey, { ensureFixedRealizations: false });
-          if (!cancelled) setEntries(refreshed);
-        } catch {
-          /* silent background hydration */
-        }
-      })();
 
       try {
         const variableTrend = await listVariableExpenseTrend(trendMonths);
