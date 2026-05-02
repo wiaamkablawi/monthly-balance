@@ -1924,3 +1924,154 @@ label {
   font-weight: 600;
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   RESPONSIVE LAYOUT — dash-desktop / dash-mobile
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Desktop: show desktop wrapper, hide mobile wrapper */
+.dash-desktop { display: block; }
+.dash-mobile  { display: none;  }
+
+/* Mobile (≤920px): flip them */
+@media (max-width: 920px) {
+  .dash-desktop { display: none;  }
+  .dash-mobile  { display: block; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   CORAL DESIGN TOKENS — desktop palette
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --coral-primary:   #FF5C35;
+  --coral-deep:      #E84A22;
+  --coral-soft:      #FF7A57;
+  --coral-warm:      #FFB347;
+  --coral-bg:        #FFF7F4;
+  --coral-surface:   #FFFFFF;
+  --coral-border:    #FFD5C8;
+  --coral-text:      #2D1A0E;
+  --coral-muted:     #C4997A;
+  --coral-grad-from: #FF5C35;
+  --coral-grad-to:   #FF8C5A;
+}
+
+/* ── Coral buttons ── */
+.coral-btn {
+  background: var(--coral-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 20px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.coral-btn:hover { background: var(--coral-deep); color: #fff; }
+
+.coral-btn-secondary {
+  background: var(--coral-bg);
+  color: var(--coral-primary);
+  border: 1.5px solid var(--coral-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 20px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.coral-btn-secondary:hover {
+  background: #FFE8E0;
+  border-color: var(--coral-primary);
+}
+
+/* ── Coral card ── */
+.coral-card {
+  border: 1.5px solid var(--coral-border) !important;
+  box-shadow: 0 4px 24px rgba(255, 92, 53, 0.06) !important;
+}
+.coral-card .section-title  { color: var(--coral-text); }
+.coral-card .section-subtitle { color: var(--coral-muted); }
+
+/* ── Coral chip (header badge) ── */
+.coral-chip {
+  background: linear-gradient(135deg, var(--coral-grad-from), var(--coral-grad-to));
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(255, 92, 53, 0.25);
+}
+
+/* ── Coral hero card (desktop) ── */
+.coral-hero {
+  background: linear-gradient(135deg, var(--coral-grad-from) 0%, var(--coral-grad-to) 60%, var(--coral-warm) 100%);
+  border-radius: var(--radius-xl);
+  padding: 32px 36px;
+  color: #fff;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  box-shadow: 0 8px 32px rgba(255, 92, 53, 0.22);
+  margin-bottom: 4px;
+}
+.coral-hero-main { flex: 1; min-width: 220px; }
+.coral-hero-label {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.85;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.coral-hero-amount {
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 4px;
+  font-family: "Rubik", var(--font-sans, sans-serif);
+}
+.coral-hero-sub {
+  font-size: 13px;
+  opacity: 0.8;
+}
+.coral-hero-stats {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(255,255,255,0.18);
+  border-radius: 16px;
+  padding: 12px 20px;
+  backdrop-filter: blur(8px);
+}
+.coral-hero-stat {
+  text-align: center;
+  padding: 0 20px;
+}
+.coral-hero-stat-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+.coral-hero-stat-val {
+  font-size: 17px;
+  font-weight: 800;
+  font-family: "Rubik", sans-serif;
+}
+.coral-hero-stat-val.income  { color: #CAFFD4; }
+.coral-hero-stat-val.expense { color: #FFEDB0; }
+.coral-hero-divider {
+  width: 1px;
+  height: 36px;
+  background: rgba(255,255,255,0.35);
+  flex-shrink: 0;
+}
+
+/* ── Coral category fill override ── */
+.coral-category-fill {
+  /* background is set inline via style prop; just ensure border-radius */
+  border-radius: 4px;
+}
+

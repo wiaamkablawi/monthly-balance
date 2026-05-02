@@ -23,6 +23,7 @@ const BUILD_VERSION = formatBuildVersion(new Date().toISOString());
 const DashboardPage = lazy(() => import("../pages/DashboardPage"));
 const AddEntryPage = lazy(() => import("../pages/AddEntryPage"));
 const TransactionsPage = lazy(() => import("../pages/TransactionsPage"));
+const MonthlyReportPage = lazy(() => import("../pages/MonthlyReportPage"));
 const SettingsPage = lazy(() => import("../pages/SettingsPage"));
 const LoginPage = lazy(() => import("../pages/LoginPage"));
 
