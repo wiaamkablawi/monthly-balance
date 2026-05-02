@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import BottomNav from "../components/BottomNav";
 import ImportEntriesModal from "../components/entry/ImportEntriesModal";
 import { groupVariableExpensesByCategory, summarizeMonthlyEntries } from "../domain/analytics";
+import { getEntryLifecycle, isFixedExpense, sortEntriesByDisplayDate } from "../domain/entries";
 import {
   listAvailableMonthKeys,
   listMonthEntries,
@@ -292,6 +293,14 @@ export default function DashboardPage() {
     });
   }, [variableByCategory]);
 
+  const fixedExpenses = useMemo(() => {
+    const todayIso = todayISO();
+    return sortEntriesByDisplayDate(entries.filter((entry) => isFixedExpense(entry))).map((entry) => ({
+      entry,
+      lifecycle: getEntryLifecycle(entry, todayIso),
+    }));
+  }, [entries]);
+
   const heroSubtitle = balance >= 0 ? "עודף תקציב חודשי" : "גרעון בתקציב החודש";
   const monthLabel = formatMonthKey(monthKey);
 
@@ -465,6 +474,44 @@ export default function DashboardPage() {
                       className="mb-prog-fill"
                       style={{ width: `${ratio * 100}%`, background: item.color }}
                     />
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </section>
+
+        <section className="mb-section">
+          <div className="mb-sec-hdr">
+            <div className="mb-sec-ttl">הוצאות קבועות</div>
+            <div className="mb-fixed-summary">
+              {formatCompactILS(summary.totals.fixed)}
+              {summary.totals.scheduledFixed > 0 ? (
+                <span className="mb-fixed-pending"> · {formatCompactILS(summary.totals.scheduledFixed)} מתוזמן</span>
+              ) : null}
+            </div>
+          </div>
+          {fixedExpenses.length === 0 ? (
+            <div className="mb-empty">אין הוצאות קבועות בחודש הנבחר.</div>
+          ) : (
+            fixedExpenses.map(({ entry, lifecycle }) => {
+              const visual = visualForEntry(entry);
+              const isScheduled = lifecycle === "scheduled";
+              return (
+                <div className="mb-tx" key={entry.id}>
+                  <div className="mb-tx-ico" style={{ background: visual.bg }}>
+                    {visual.emoji}
+                  </div>
+                  <div className="mb-tx-body">
+                    <div className="mb-tx-name">{entry.description || entry.category || "הוצאה קבועה"}</div>
+                    <div className="mb-tx-cat">
+                      {entry.category || "ללא קטגוריה"}
+                      {entry.date ? ` · ${formatShortHebrewDate(String(entry.date))}` : ""}
+                      {isScheduled ? " · מתוזמן" : " · ירדה"}
+                    </div>
+                  </div>
+                  <div className={`mb-tx-amt exp${isScheduled ? " scheduled" : ""}`}>
+                    -{formatTransactionAmount(Number(entry.amount || 0))}
                   </div>
                 </div>
               );
