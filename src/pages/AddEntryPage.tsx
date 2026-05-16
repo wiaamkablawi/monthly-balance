@@ -66,7 +66,7 @@ export default function AddEntryPage() {
   }, [kind]);
 
   const showInstallments = kind === "expense_variable";
-  const showChargeDay = kind !== "income";
+  const showChargeDay = kind === "expense_fixed";
 
   function resetMessages() {
     setErr("");

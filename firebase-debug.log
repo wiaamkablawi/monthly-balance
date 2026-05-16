@@ -1,0 +1,16 @@
+[debug] [2026-05-16T17:48:03.217Z] ----------------------------------------------------------------------
+[debug] [2026-05-16T17:48:03.231Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\USER\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy
+[debug] [2026-05-16T17:48:03.232Z] CLI Version:   15.17.0
+[debug] [2026-05-16T17:48:03.232Z] Platform:      win32
+[debug] [2026-05-16T17:48:03.232Z] Node Version:  v22.19.0
+[debug] [2026-05-16T17:48:03.233Z] Time:          Sat May 16 2026 20:48:03 GMT+0300 (שעון ישראל (קיץ))
+[debug] [2026-05-16T17:48:03.233Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-16T17:48:06.357Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-16T17:48:06.357Z] > authorizing via signed-in user (k.wiaam@gmail.com)
+[debug] [2026-05-16T17:48:06.358Z] [iam] checking project monthly-balance-548d1 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get","firebasehosting.sites.update","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]
+[debug] [2026-05-16T17:48:06.361Z] Checked if tokens are valid: true, expires at: 1778956296236
+[debug] [2026-05-16T17:48:06.361Z] Checked if tokens are valid: true, expires at: 1778956296236
+[debug] [2026-05-16T17:48:06.363Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/monthly-balance-548d1:testIamPermissions [none]
+[debug] [2026-05-16T17:48:06.363Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/monthly-balance-548d1:testIamPermissions  x-goog-user-project=monthly-balance-548d1
+[debug] [2026-05-16T17:48:06.363Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/monthly-balance-548d1:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get","firebasehosting.sites.update","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]}
