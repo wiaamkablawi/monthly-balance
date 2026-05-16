@@ -1237,6 +1237,29 @@ label {
   color: var(--danger);
 }
 
+.form-submit-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 920px) {
+  .form-submit-bar {
+    position: sticky;
+    bottom: 0;
+    padding: 12px 0 16px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    margin: 0 -22px -22px;
+    padding-left: 22px;
+    padding-right: 22px;
+    border-top: 1px solid rgba(197, 197, 216, 0.25);
+    z-index: 10;
+  }
+}
+
 .login-shell {
   min-height: 100vh;
   display: grid;

@@ -402,7 +402,7 @@ export default function AddEntryPage() {
             {err ? <div className="error-banner">{err}</div> : null}
             {ok ? <div className="note-banner">{ok}</div> : null}
 
-            <div className="toolbar-actions" style={{ justifyContent: "space-between" }}>
+            <div className="form-submit-bar">
               <button className="btn" type="submit" disabled={saving}>
                 {saving ? "שומר..." : kind === "expense_fixed" ? "שמור הוצאה קבועה" : "שמור תנועה"}
               </button>
