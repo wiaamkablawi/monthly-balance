@@ -1247,16 +1247,19 @@ label {
 
 @media (max-width: 920px) {
   .form-submit-bar {
-    position: sticky;
-    bottom: 0;
-    padding: 12px 0 16px;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(12px);
-    margin: 0 -22px -22px;
-    padding-left: 22px;
-    padding-right: 22px;
-    border-top: 1px solid rgba(197, 197, 216, 0.25);
-    z-index: 10;
+    position: fixed;
+    right: 0;
+    left: 0;
+    bottom: 90px;
+    padding: 12px 20px;
+    background: rgba(247, 249, 251, 0.96);
+    backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(197, 197, 216, 0.3);
+    z-index: 34;
+  }
+
+  .container {
+    padding-bottom: 160px;
   }
 }
 
@@ -1383,7 +1386,7 @@ label {
 
 @media (max-width: 720px) {
   .container {
-    padding: 108px 16px 140px;
+    padding: 108px 16px 160px;
   }
 
   .app-topbar,

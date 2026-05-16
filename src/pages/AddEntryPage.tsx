@@ -276,7 +276,7 @@ export default function AddEntryPage() {
             </div>
           </div>
 
-          <form onSubmit={onSubmit} className="grid">
+          <form id="add-entry-form" onSubmit={onSubmit} className="grid">
             <div className="form-grid">
               <div className="grid">
                 <label>סוג</label>
@@ -402,17 +402,18 @@ export default function AddEntryPage() {
             {err ? <div className="error-banner">{err}</div> : null}
             {ok ? <div className="note-banner">{ok}</div> : null}
 
-            <div className="form-submit-bar">
-              <button className="btn" type="submit" disabled={saving}>
-                {saving ? "שומר..." : kind === "expense_fixed" ? "שמור הוצאה קבועה" : "שמור תנועה"}
-              </button>
-
-              <button className="btn secondary" type="button" disabled={saving} onClick={resetForm}>
-                נקה טופס
-              </button>
-            </div>
           </form>
         </section>
+      </div>
+
+      <div className="form-submit-bar">
+        <button className="btn" type="submit" form="add-entry-form" disabled={saving}>
+          {saving ? "שומר..." : kind === "expense_fixed" ? "שמור הוצאה קבועה" : "שמור תנועה"}
+        </button>
+
+        <button className="btn secondary" type="button" disabled={saving} onClick={resetForm}>
+          נקה טופס
+        </button>
       </div>
 
       <ImportEntriesModal
