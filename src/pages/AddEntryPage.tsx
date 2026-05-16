@@ -11,7 +11,7 @@ import {
 import { householdIdFromEmail, userKeyFromEmail } from "../services/authService";
 import { auth } from "../services/firebase";
 import { db } from "../services/firebaseDb";
-import { invalidateRecordsState, saveFixedTemplate } from "../services/recordsService";
+import { findSimilarEntry, invalidateRecordsState, saveFixedTemplate } from "../services/recordsService";
 import type { EntryDoc, EntrySubType, EntryType } from "../types/models";
 import { monthKeyFromISO, todayISO } from "../utils/dates";
 
@@ -56,6 +56,8 @@ export default function AddEntryPage() {
   const [ok, setOk] = useState<string>("");
   const [saving, setSaving] = useState<boolean>(false);
   const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
+  const [dupCandidate, setDupCandidate] = useState<EntryDoc | null>(null);
+  const [dupResolve, setDupResolve] = useState<((v: boolean) => void) | null>(null);
 
   const categories = useMemo(() => {
     if (kind === "income") return ADD_ENTRY_INCOME_CATEGORIES;
@@ -84,6 +86,19 @@ export default function AddEntryPage() {
 
   function navigateToUpdatedSummary(targetMonthKey: string) {
     navigate(`/?month=${encodeURIComponent(targetMonthKey)}`, { replace: true });
+  }
+
+  function showDuplicateWarning(entry: EntryDoc): Promise<boolean> {
+    return new Promise((resolve) => {
+      setDupCandidate(entry);
+      setDupResolve(() => resolve);
+    });
+  }
+
+  function dismissDuplicateWarning(confirmed: boolean) {
+    dupResolve?.(confirmed);
+    setDupCandidate(null);
+    setDupResolve(null);
   }
 
   function validate(): { amountNumber: number; installmentsNumber: number; chargeDayNumber: number } | null {
@@ -159,6 +174,22 @@ export default function AddEntryPage() {
       const subType: EntrySubType = "variable";
       const createdAtBase = Date.now();
       const installmentGroupId = `${createdAtBase}-${Math.random().toString(16).slice(2)}`;
+
+      const similar = await findSimilarEntry({
+        householdId,
+        date,
+        amount: validated.amountNumber,
+        category,
+        type,
+      });
+
+      if (similar) {
+        const confirmed = await showDuplicateWarning(similar);
+        if (!confirmed) {
+          setSaving(false);
+          return;
+        }
+      }
 
       if (!showInstallments || validated.installmentsNumber === 1) {
         const payload: Omit<EntryDoc, "id"> = {
@@ -422,6 +453,28 @@ export default function AddEntryPage() {
         defaultDateISO={date || todayISO()}
         onSaved={(savedMonthKey) => navigateToUpdatedSummary(savedMonthKey)}
       />
+
+      {dupCandidate && (
+        <div className="dup-warning-overlay">
+          <div className="dup-warning-box">
+            <div className="dup-warning-title">נמצאה הוצאה דומה</div>
+            <div className="dup-warning-details">
+              <span>{dupCandidate.date}</span>
+              <span>{dupCandidate.category}</span>
+              <span>₪{dupCandidate.amount.toLocaleString("he-IL")}</span>
+            </div>
+            {dupCandidate.description && <div className="dup-warning-desc">{dupCandidate.description}</div>}
+            <div className="dup-warning-actions">
+              <button className="btn secondary" type="button" onClick={() => dismissDuplicateWarning(false)}>
+                ביטול
+              </button>
+              <button className="btn" type="button" onClick={() => dismissDuplicateWarning(true)}>
+                הוסף בכל זאת
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

@@ -1384,6 +1384,40 @@ export async function deleteEntryRecord(entryId: string): Promise<void> {
   invalidateRecordsState();
 }
 
+export async function findSimilarEntry(opts: {
+  householdId: string;
+  date: string;
+  amount: number;
+  category: string;
+  type: "income" | "expense";
+}): Promise<EntryDoc | null> {
+  const targetDate = new Date(opts.date);
+  const from = new Date(targetDate);
+  from.setDate(from.getDate() - 3);
+  const to = new Date(targetDate);
+  to.setDate(to.getDate() + 3);
+
+  const fromKey = from.toISOString().slice(0, 10);
+  const toKey = to.toISOString().slice(0, 10);
+
+  const q = query(
+    collection(db, "records"),
+    where("householdId", "==", opts.householdId),
+    where("date", ">=", fromKey),
+    where("date", "<=", toKey),
+    where("category", "==", opts.category)
+  );
+
+  const snap = await getDocs(q);
+  for (const d of snap.docs) {
+    const entry = d.data() as EntryDoc;
+    if (entry.type === opts.type && Math.abs(entry.amount - opts.amount) < 0.01) {
+      return { ...entry, id: d.id };
+    }
+  }
+  return null;
+}
+
 
 
 
