@@ -19,6 +19,7 @@ type ParsedImportRow = {
   selected: boolean;
   importSource?: string;
   importHash?: string;
+  isDuplicate?: boolean;
 };
 
 type ImportFingerprintInput = {
@@ -112,6 +113,57 @@ function categoryOptionsForRow(type: EntryDoc["type"], currentCategory: string):
     return [...baseOptions];
   }
   return [normalizedCurrentCategory, ...baseOptions];
+}
+
+async function markDuplicatesAgainstFirestore(rows: ParsedImportRow[], householdId: string): Promise<ParsedImportRow[]> {
+  const monthKeysToScan = Array.from(
+    new Set(
+      rows.map((row) => monthKeyFromISO(String(row.date || "").trim()) || "")
+        .filter(Boolean)
+    )
+  );
+
+  const existingFingerprints = new Set<string>();
+
+  for (const currentMonthKey of monthKeysToScan) {
+    const snapshot = await getDocs(
+      query(
+        collection(db, "records"),
+        where("householdId", "==", householdId),
+        where("monthKey", "==", currentMonthKey)
+      )
+    );
+
+    snapshot.forEach((entryDoc) => {
+      const entry = entryDoc.data() as Partial<EntryDoc>;
+      const type = entry.type === "income" ? "income" : "expense";
+      const date = String(entry.date || "").trim();
+      const category = String(entry.category || "").trim();
+      const description = String(entry.description || "").trim();
+      const amount = Number(entry.amount || 0);
+      if (!date || !Number.isFinite(amount) || amount <= 0) return;
+
+      if (entry.importFingerprint) {
+        existingFingerprints.add(String(entry.importFingerprint));
+      }
+      buildImportFingerprints({ type, date, category, description, amount })
+        .forEach((fp) => existingFingerprints.add(fp));
+    });
+  }
+
+  return rows.map((row) => {
+    const amount = parseImportedAmount(row.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return row;
+    const fingerprints = buildImportFingerprints({
+      type: row.type,
+      date: row.date,
+      category: row.category,
+      description: row.description,
+      amount,
+    });
+    const isDuplicate = fingerprints.some((fp) => existingFingerprints.has(fp));
+    return { ...row, isDuplicate, selected: isDuplicate ? false : row.selected };
+  });
 }
 
 async function parseFileToRows(file: File, fallbackISO: string): Promise<ParsedFileResult> {
@@ -284,10 +336,20 @@ export default function ImportEntriesModal(props: {
         }
       }
 
-      setRows(parsedResult.rows);
+      const user = auth.currentUser;
+      let markedRows = parsedResult.rows;
+      if (user?.email) {
+        const householdId = householdIdFromEmail(user.email);
+        markedRows = await markDuplicatesAgainstFirestore(parsedResult.rows, householdId);
+      }
+      const dupCount = markedRows.filter((row) => row.isDuplicate).length;
+
+      setRows(markedRows);
       setImportSession(parsedResult.importSession);
       if (parsedResult.note) {
-        setNote(parsedResult.note);
+        setNote(parsedResult.note + (dupCount ? ` זוהו ${dupCount} כפילויות שכבר קיימות במערכת.` : ""));
+      } else if (dupCount) {
+        setNote(`זוהו ${dupCount} עסקאות שכבר קיימות במערכת — הן מסומנות באדום ולא ייבחרו לשמירה.`);
       } else if (file.name.match(/\.(pdf|png|jpg|jpeg|webp)$/i)) {
         setNote("אפשר לעבור שורה-שורה לפני אישור השמירה.");
       }
@@ -528,14 +590,14 @@ export default function ImportEntriesModal(props: {
 
             <div className="import-grid">
               {rows.map((row) => (
-                <div key={row.id} className={`import-row ${row.selected ? "selected" : "unselected"}`}>
+                <div key={row.id} className={`import-row ${row.selected ? "selected" : "unselected"} ${row.isDuplicate ? "duplicate" : ""}`}>
                   <label className="check-row">
                     <input
                       type="checkbox"
                       checked={row.selected}
                       onChange={(event) => updateRow(row.id, { selected: event.target.checked })}
                     />
-                    <span>שמור עסקה זו</span>
+                    <span>{row.isDuplicate ? "כפילות — קיים במערכת" : "שמור עסקה זו"}</span>
                   </label>
 
                   <div className="import-row-grid">
