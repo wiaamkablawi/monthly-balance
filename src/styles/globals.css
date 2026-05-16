@@ -1245,24 +1245,6 @@ label {
   flex-wrap: wrap;
 }
 
-@media (max-width: 920px) {
-  .form-submit-bar {
-    position: fixed;
-    right: 0;
-    left: 0;
-    bottom: 90px;
-    padding: 12px 20px;
-    background: rgba(247, 249, 251, 0.96);
-    backdrop-filter: blur(16px);
-    border-top: 1px solid rgba(197, 197, 216, 0.3);
-    z-index: 34;
-  }
-
-  .container {
-    padding-bottom: 160px;
-  }
-}
-
 .login-shell {
   min-height: 100vh;
   display: grid;
@@ -1380,13 +1362,13 @@ label {
   }
 
   .container {
-    padding-bottom: 140px;
+    padding-bottom: 180px;
   }
 }
 
 @media (max-width: 720px) {
   .container {
-    padding: 108px 16px 160px;
+    padding: 108px 16px 180px;
   }
 
   .app-topbar,
