@@ -2,11 +2,22 @@
 import { Link } from "react-router-dom";
 import AppLayout from "../app/layout/AppLayout";
 import { summarizeMonthlyEntries } from "../domain/analytics";
+import {
+  ADD_ENTRY_EXPENSE_CATEGORIES,
+  ADD_ENTRY_INCOME_CATEGORIES,
+  DASHBOARD_FIXED_EXPENSE_CATEGORIES,
+} from "../domain/categories";
 import { getEntryLifecycle, getEntryTone, getEntryTypeLabel, getInstallmentLabel, parseAmountInput, sortEntriesByDisplayDate } from "../domain/entries";
 import { deleteEntryRecord, listAvailableMonthKeys, listMonthEntries, subscribeRecordsState, updateEntryRecord } from "../services/recordsService";
 import type { EntryDoc } from "../types/models";
 import { currentMonthKey, formatMonthKey, listRecentMonthKeys, monthKeyFromISO, todayISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
+
+function getCategoriesForEntry(entry: EntryDoc): readonly string[] {
+  if (entry.type === "income") return ADD_ENTRY_INCOME_CATEGORIES;
+  if (entry.subType === "fixed") return DASHBOARD_FIXED_EXPENSE_CATEGORIES;
+  return ADD_ENTRY_EXPENSE_CATEGORIES;
+}
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 type FilterKey = "all" | "income" | "variable" | "fixed" | "scheduled";
@@ -359,7 +370,12 @@ export default function TransactionsPage() {
 
                           <div>
                             <label>קטגוריה</label>
-                            <input className="input" value={editCategory} onChange={(event) => setEditCategory(event.target.value)} />
+                            <select className="input" value={editCategory} onChange={(event) => setEditCategory(event.target.value)}>
+                              <option value="">בחר קטגוריה</option>
+                              {getCategoriesForEntry(entry).map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
                           </div>
 
                           <div>
