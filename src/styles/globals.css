@@ -1350,12 +1350,17 @@ label {
     background: rgba(247, 249, 251, 0.88);
     backdrop-filter: blur(24px);
     z-index: 35;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .container {
+    padding-bottom: 140px;
   }
 }
 
 @media (max-width: 720px) {
   .container {
-    padding: 108px 16px 104px;
+    padding: 108px 16px 140px;
   }
 
   .app-topbar,
