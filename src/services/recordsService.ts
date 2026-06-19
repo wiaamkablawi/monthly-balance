@@ -1402,16 +1402,19 @@ export async function findSimilarEntry(opts: {
 
   const q = query(
     collection(db, "records"),
-    where("householdId", "==", opts.householdId),
-    where("date", ">=", fromKey),
-    where("date", "<=", toKey),
-    where("category", "==", opts.category)
+    where("householdId", "==", opts.householdId)
   );
 
   const snap = await getDocs(q);
   for (const d of snap.docs) {
     const entry = d.data() as EntryDoc;
-    if (entry.type === opts.type && Math.abs(entry.amount - opts.amount) < 0.01) {
+    if (
+      entry.date >= fromKey &&
+      entry.date <= toKey &&
+      entry.category === opts.category &&
+      entry.type === opts.type &&
+      Math.abs(entry.amount - opts.amount) < 0.01
+    ) {
       return { ...entry, id: d.id };
     }
   }

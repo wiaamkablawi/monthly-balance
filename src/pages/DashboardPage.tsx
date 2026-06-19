@@ -78,6 +78,41 @@ function formatCompactILS(amount: number): string {
 function formatTransactionAmount(amount: number): string {
   return `₪${Math.abs(amount).toLocaleString("he-IL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  return [
+    parseInt(clean.slice(0, 2), 16),
+    parseInt(clean.slice(2, 4), 16),
+    parseInt(clean.slice(4, 6), 16),
+  ];
+}
+function blendHex(from: string, to: string, amount: number): string {
+  const [fr, fg, fb] = hexToRgb(from);
+  const [tr, tg, tb] = hexToRgb(to);
+  const ratio = Math.max(0, Math.min(1, amount));
+  const channel = (start: number, end: number) => Math.round(start + (end - start) * ratio).toString(16).padStart(2, "0");
+  return `#${channel(fr, tr)}${channel(fg, tg)}${channel(fb, tb)}`;
+}
+function buildBalanceHeroStyle(balance: number, income: number, expenses: number): React.CSSProperties {
+  const scaleBase = Math.max(Math.abs(balance), income, expenses, 1);
+  const intensity = Math.sqrt(Math.min(1, Math.abs(balance) / scaleBase));
+
+  if (balance < 0) {
+    return {
+      "--balance-hero-from": blendHex("#fb7185", "#b91c1c", intensity),
+      "--balance-hero-to": blendHex("#ef4444", "#7f1d1d", intensity),
+      "--balance-hero-accent": blendHex("#fca5a5", "#991b1b", intensity),
+      "--balance-hero-shadow": `rgba(185, 28, 28, ${0.2 + intensity * 0.18})`,
+    } as React.CSSProperties;
+  }
+
+  return {
+    "--balance-hero-from": blendHex("#4ade80", "#059669", intensity),
+    "--balance-hero-to": blendHex("#22c55e", "#047857", intensity),
+    "--balance-hero-accent": blendHex("#bbf7d0", "#10b981", intensity),
+    "--balance-hero-shadow": `rgba(5, 150, 105, ${0.18 + intensity * 0.18})`,
+  } as React.CSSProperties;
+}
 function mergeMonthOptions(primary: string[], secondary: string[]): string[] {
   return Array.from(new Set([...primary, ...secondary])).sort((a, b) => b.localeCompare(a));
 }
@@ -209,6 +244,10 @@ export default function DashboardPage() {
   const totalExpenses  = summary.totals.expenses;
   const totalIncome    = summary.totals.income;
   const balance        = summary.totals.balance;
+  const balanceHeroStyle = useMemo(
+    () => buildBalanceHeroStyle(balance, totalIncome, totalExpenses),
+    [balance, totalIncome, totalExpenses]
+  );
   const budgetUsedPct  = totalIncome > 0
     ? Math.max(0, Math.min(100, Math.round(totalExpenses / totalIncome * 100)))
     : totalExpenses > 0 ? 100 : 0;
@@ -281,7 +320,7 @@ export default function DashboardPage() {
           : null}
         {errorMessage ? <div className="mb-banner error">{errorMessage}</div> : null}
 
-        <section className="mb-hero">
+        <section className="mb-hero" style={balanceHeroStyle}>
           <div className="mb-hero-lbl">יתרה חודשית · {monthLabel}</div>
           <div className="mb-hero-amt">₪{formatHeroAmount(balance)}</div>
           <div className="mb-hero-sub">{heroSubtitle}</div>
@@ -440,7 +479,7 @@ export default function DashboardPage() {
         {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
 
         {/* Hero — Coral gradient */}
-        <section className="coral-hero">
+        <section className="coral-hero" style={balanceHeroStyle}>
           <div className="coral-hero-main">
             <div className="coral-hero-label">יתרה חודשית · {monthLabel}</div>
             <div className="coral-hero-amount">₪{formatHeroAmount(balance)}</div>
@@ -481,7 +520,8 @@ export default function DashboardPage() {
                 ? <div className="muted">מכין גרף…</div>
                 : trend.length === 0
                   ? <div className="empty-panel">אין מספיק נתונים.</div>
-                  : <Bar
+                  : <div className="trend-chart-frame">
+                    <Bar
                       data={{
                         labels: trend.map(p => formatTrendLabel(p.month)),
                         datasets: [{
@@ -498,7 +538,8 @@ export default function DashboardPage() {
                           y: { display: false, grid: { display: false }, border: { display: false } },
                         },
                       }}
-                    />}
+                    />
+                  </div>}
             </div>
             <div className="trend-meta-list">
               <div className="section-subtitle">קטגוריות מובילות</div>
@@ -560,14 +601,14 @@ export default function DashboardPage() {
               </div>
             </article>
 
-            <article className="card coral-card">
+            <article className="card coral-card fixed-expenses-card">
               <div className="section-header compact">
                 <div>
                   <div className="section-title">הוצאות קבועות</div>
                   <div className="section-subtitle">{formatILS(summary.totals.fixed)}{summary.totals.scheduledFixed > 0 ? ` · ${formatILS(summary.totals.scheduledFixed)} מתוזמן` : ""}</div>
                 </div>
               </div>
-              <div className="activity-feed">
+              <div className="activity-feed fixed-expenses-feed">
                 {fixedExpenses.length === 0
                   ? <div className="empty-panel">אין הוצאות קבועות.</div>
                   : fixedExpenses.map(({ entry, lifecycle }) => {
