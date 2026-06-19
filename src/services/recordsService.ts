@@ -491,6 +491,39 @@ function isScopedFixedRealizationId(recordId: string, targetMonthKey: string): b
   return suffix.startsWith("W__") || suffix.startsWith("B__");
 }
 
+
+function normalizeDedupeText(value: unknown): string {
+  return firstString(value).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normalizeDedupeAmount(value: unknown): string {
+  const amount = Number(value || 0);
+  return Number.isFinite(amount) ? amount.toFixed(2) : "0.00";
+}
+
+function fixedExpenseSemanticKey(entry: Partial<EntryDoc>): string {
+  if (entry.type !== "expense" || (entry.subType !== "fixed" && entry.subType !== "fixed_realization")) return "";
+
+  const monthKey = firstString(entry.monthKey) || normalizeMonthKey(entry.date);
+  const category = normalizeDedupeText(entry.category);
+  const description = normalizeDedupeText(entry.description);
+  const amount = normalizeDedupeAmount(entry.amount);
+  const chargeDay = String(clampChargeDay(entry.chargeDay ?? Number(firstString(entry.date).slice(8, 10))));
+
+  if (!monthKey || !category || !description || amount === "0.00") return "";
+  return `${monthKey}::semantic::${category}::${description}::${amount}::${chargeDay}`;
+}
+
+function fixedTemplateSemanticKey(template: FixedExpenseDoc): string {
+  const category = normalizeDedupeText(template.category);
+  const description = normalizeDedupeText(template.description);
+  const amount = normalizeDedupeAmount(template.amount);
+  const chargeDay = String(clampChargeDay(template.chargeDay));
+
+  if (!category || !description || amount === "0.00") return `id::${template.id}`;
+  return `semantic::${category}::${description}::${amount}::${chargeDay}`;
+}
+
 function fixedRealizationTemplateKey(entry: Partial<EntryDoc>): string {
   if (entry.type !== "expense" || entry.subType !== "fixed_realization") return "";
 
@@ -544,7 +577,8 @@ function dedupeItemsByEntry<T>(
 
   for (const item of items) {
     const entry = getEntry(item);
-    const key = fixedRealizationTemplateKey(entry) || `record::${entry.id}`;
+    const key =
+      fixedExpenseSemanticKey(entry) || fixedRealizationTemplateKey(entry) || `record::${entry.id}`;
     const existing = deduped.get(key);
 
     if (!existing) {
@@ -562,6 +596,30 @@ function dedupeItemsByEntry<T>(
     items: Array.from(deduped.values()),
     duplicateCount,
   };
+}
+
+function dedupeFixedTemplates(items: LoadedFixedTemplate[]): { items: LoadedFixedTemplate[]; duplicateCount: number } {
+  const deduped = new Map<string, LoadedFixedTemplate>();
+  let duplicateCount = 0;
+
+  for (const item of items) {
+    const key = fixedTemplateSemanticKey(item.template);
+    const existing = deduped.get(key);
+
+    if (!existing) {
+      deduped.set(key, item);
+      continue;
+    }
+
+    duplicateCount += 1;
+    const itemUpdatedAt = toMillis(item.template.updatedAt) || toMillis(item.template.createdAt);
+    const existingUpdatedAt = toMillis(existing.template.updatedAt) || toMillis(existing.template.createdAt);
+    if (itemUpdatedAt > existingUpdatedAt) {
+      deduped.set(key, item);
+    }
+  }
+
+  return { items: Array.from(deduped.values()), duplicateCount };
 }
 async function backfillLegacyTemplate(item: LoadedFixedTemplate, context: SessionContext): Promise<void> {
   if (!needsTemplateBackfill(item.raw, item.template)) return;
@@ -758,16 +816,18 @@ async function loadFixedTemplates(context: SessionContext): Promise<LoadedFixedT
       });
     }
 
-    const loaded = Array.from(byId.entries())
+    const normalizedTemplates = Array.from(byId.entries())
       .map(([id, raw]) => ({
         raw,
         template: normalizeFixedTemplate(id, raw, context),
       }))
       .filter(({ template }) => template.amount > 0);
+    const { items: loaded, duplicateCount } = dedupeFixedTemplates(normalizedTemplates);
 
     console.info(`[monthly-balance] fixed_templates normalized ${APP_BUILD}`, {
       householdId: context.householdId,
       count: loaded.length,
+      duplicateCount,
       ids: loaded.map(({ template }) => template.id),
     });
 
@@ -944,11 +1004,15 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
   }
 
   const batch = writeBatch(db);
-  let writes = 0;
+  let batchWrites = 0;
+  let createdWrites = 0;
   let activeTemplates = 0;
   const createdAtBase = Date.now();
   const existingFixedRecordIds = new Set<string>();
   const existingFixedTemplateIds = new Set<string>();
+  const existingFixedSemanticKeys = new Set<string>();
+  const existingFixedBySemanticKey = new Map<string, { id: string; entry: EntryDoc }>();
+  const duplicateFixedRecordIds = new Set<string>();
 
   const monthSnapshot = await getDocs(
     query(
@@ -963,6 +1027,21 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
     if (data.subType !== "fixed_realization") return;
 
     existingFixedRecordIds.add(recordDoc.id);
+    const entry = normalizeRecord(recordDoc.id, data as LegacyRecord, context);
+    const existingSemanticKey = fixedExpenseSemanticKey(entry);
+    if (existingSemanticKey) {
+      existingFixedSemanticKeys.add(existingSemanticKey);
+
+      const current = existingFixedBySemanticKey.get(existingSemanticKey);
+      if (!current) {
+        existingFixedBySemanticKey.set(existingSemanticKey, { id: recordDoc.id, entry });
+      } else if (shouldPreferEntry(entry, current.entry)) {
+        duplicateFixedRecordIds.add(current.id);
+        existingFixedBySemanticKey.set(existingSemanticKey, { id: recordDoc.id, entry });
+      } else {
+        duplicateFixedRecordIds.add(recordDoc.id);
+      }
+    }
 
     const templateId = String(data.templateId || "").trim();
     if (templateId) {
@@ -983,8 +1062,20 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
     activeTemplates += 1;
 
     const existingIds = fixedRealizationIds(targetMonthKey, template.id);
+    const semanticKey = fixedExpenseSemanticKey({
+      type: "expense",
+      subType: "fixed_realization",
+      monthKey: targetMonthKey,
+      date: `${targetMonthKey}-${String(template.chargeDay).padStart(2, "0")}`,
+      category: template.category,
+      description: template.description,
+      amount: template.amount,
+      chargeDay: template.chargeDay,
+    });
     let alreadyExists =
-      existingFixedTemplateIds.has(template.id) || existingIds.some((recordId) => existingFixedRecordIds.has(recordId));
+      existingFixedTemplateIds.has(template.id) ||
+      (semanticKey ? existingFixedSemanticKeys.has(semanticKey) : false) ||
+      existingIds.some((recordId) => existingFixedRecordIds.has(recordId));
 
     if (!alreadyExists) {
       const legacyRecordChecks = await Promise.all(
@@ -1019,15 +1110,24 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
       ownerUid: context.uid,
       householdId: context.householdId,
       userKey: context.userKey,
-      createdAt: createdAtBase + writes,
+      createdAt: createdAtBase + createdWrites,
     });
 
     existingFixedRecordIds.add(recordRef.id);
     existingFixedTemplateIds.add(template.id);
-    writes += 1;
+    if (semanticKey) {
+      existingFixedSemanticKeys.add(semanticKey);
+    }
+    createdWrites += 1;
+    batchWrites += 1;
   }
 
-  if (writes > 0) {
+  duplicateFixedRecordIds.forEach((recordId) => {
+    batch.delete(doc(db, "records", recordId));
+    batchWrites += 1;
+  });
+
+  if (batchWrites > 0) {
     await batch.commit();
     clearRecordsCache();
     clearFixedTemplatesCache();
@@ -1037,10 +1137,11 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
     targetMonthKey,
     templates: templates.length,
     activeTemplates,
-    created: writes,
+    created: createdWrites,
+    deletedDuplicates: duplicateFixedRecordIds.size,
   });
 
-  return writes;
+  return createdWrites;
 }
 
 export async function listAvailableMonthKeys(): Promise<string[]> {
