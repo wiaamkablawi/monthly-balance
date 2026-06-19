@@ -983,8 +983,22 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
     activeTemplates += 1;
 
     const existingIds = fixedRealizationIds(targetMonthKey, template.id);
-    const alreadyExists =
+    let alreadyExists =
       existingFixedTemplateIds.has(template.id) || existingIds.some((recordId) => existingFixedRecordIds.has(recordId));
+
+    if (!alreadyExists) {
+      const legacyRecordChecks = await Promise.all(
+        existingIds.map(async (recordId) => ({ id: recordId, snapshot: await getDoc(doc(db, "records", recordId)) }))
+      );
+
+      for (const { id, snapshot } of legacyRecordChecks) {
+        if (!snapshot.exists()) continue;
+
+        existingFixedRecordIds.add(id);
+        existingFixedTemplateIds.add(template.id);
+        alreadyExists = true;
+      }
+    }
 
     if (alreadyExists) continue;
 
