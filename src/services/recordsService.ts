@@ -1003,11 +1003,32 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
 
   const batch = writeBatch(db);
   let writes = 0;
+  let duplicateDeletes = 0;
   let activeTemplates = 0;
   const createdAtBase = Date.now();
   const existingFixedRecordIds = new Set<string>();
   const existingFixedTemplateIds = new Set<string>();
   const existingFixedSemanticKeys = new Set<string>();
+
+  const registerExistingFixedRealization = (recordId: string, raw: LegacyRecord): void => {
+    if (!matchesContextRecord(raw, context)) return;
+
+    const entry = normalizeRecord(recordId, raw, context);
+    if (entry.type !== "expense" || entry.subType !== "fixed_realization" || entry.monthKey !== targetMonthKey) return;
+
+    existingFixedRecordIds.add(recordId);
+
+    const existingSemanticKey = fixedExpenseSemanticKey(entry);
+    if (existingSemanticKey) {
+      existingFixedSemanticKeys.add(existingSemanticKey);
+    }
+
+    const templateKey = fixedRealizationTemplateKey(entry);
+    const [, templateId = ""] = templateKey.split("::");
+    if (templateId) {
+      existingFixedTemplateIds.add(templateId);
+    }
+  };
 
   const monthSnapshot = await getDocs(
     query(
@@ -1018,25 +1039,7 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
   );
 
   monthSnapshot.forEach((recordDoc) => {
-    const data = recordDoc.data() as Partial<EntryDoc>;
-    if (data.subType !== "fixed_realization") return;
-
-    existingFixedRecordIds.add(recordDoc.id);
-    const existingSemanticKey = fixedExpenseSemanticKey({ id: recordDoc.id, ...data });
-    if (existingSemanticKey) {
-      existingFixedSemanticKeys.add(existingSemanticKey);
-    }
-
-    const templateId = String(data.templateId || "").trim();
-    if (templateId) {
-      existingFixedTemplateIds.add(templateId);
-      return;
-    }
-
-    const legacyTemplateId = templateIdFromFixedRealizationRecordId(recordDoc.id, targetMonthKey);
-    if (legacyTemplateId) {
-      existingFixedTemplateIds.add(legacyTemplateId);
-    }
+    registerExistingFixedRealization(recordDoc.id, recordDoc.data() as LegacyRecord);
   });
 
   for (const { template } of templates) {
@@ -1056,28 +1059,41 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
       amount: template.amount,
       chargeDay: template.chargeDay,
     });
-    let alreadyExists =
-      existingFixedTemplateIds.has(template.id) ||
-      (semanticKey ? existingFixedSemanticKeys.has(semanticKey) : false) ||
-      existingIds.some((recordId) => existingFixedRecordIds.has(recordId));
 
-    if (!alreadyExists) {
-      const legacyRecordChecks = await Promise.all(
-        existingIds.map(async (recordId) => ({ id: recordId, snapshot: await getDoc(doc(db, "records", recordId)) }))
+    const missingExistingIds = existingIds.filter((recordId) => !existingFixedRecordIds.has(recordId));
+    if (missingExistingIds.length > 0) {
+      const fixedRecordChecks = await Promise.all(
+        missingExistingIds.map(async (recordId) => ({ id: recordId, snapshot: await getDoc(doc(db, "records", recordId)) }))
       );
 
-      for (const { id, snapshot } of legacyRecordChecks) {
+      for (const { id, snapshot } of fixedRecordChecks) {
         if (!snapshot.exists()) continue;
 
-        existingFixedRecordIds.add(id);
-        existingFixedTemplateIds.add(template.id);
-        alreadyExists = true;
+        registerExistingFixedRealization(id, snapshot.data() as LegacyRecord);
       }
     }
 
+    const matchingExistingIds = existingIds.filter((recordId) => existingFixedRecordIds.has(recordId));
+    const canonicalRecordId = existingIds[0];
+    const canonicalExists = existingFixedRecordIds.has(canonicalRecordId);
+    const duplicateRecordIds = canonicalExists
+      ? matchingExistingIds.filter((recordId) => recordId !== canonicalRecordId)
+      : matchingExistingIds.slice(1);
+
+    duplicateRecordIds.forEach((recordId) => {
+      batch.delete(doc(db, "records", recordId));
+      existingFixedRecordIds.delete(recordId);
+      duplicateDeletes += 1;
+    });
+
+    const alreadyExists =
+      existingFixedTemplateIds.has(template.id) ||
+      (semanticKey ? existingFixedSemanticKeys.has(semanticKey) : false) ||
+      matchingExistingIds.length > 0;
+
     if (alreadyExists) continue;
 
-    const recordRef = doc(db, "records", `fx__${targetMonthKey}__${template.id}`);
+    const recordRef = doc(db, "records", canonicalRecordId);
 
     batch.set(recordRef, {
       type: "expense",
@@ -1105,7 +1121,7 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
     writes += 1;
   }
 
-  if (writes > 0) {
+  if (writes > 0 || duplicateDeletes > 0) {
     await batch.commit();
     clearRecordsCache();
     clearFixedTemplatesCache();
@@ -1116,6 +1132,7 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
     templates: templates.length,
     activeTemplates,
     created: writes,
+    removedDuplicates: duplicateDeletes,
   });
 
   return writes;
