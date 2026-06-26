@@ -70,7 +70,8 @@ service cloud.firestore {
     }
 
     match /records/{recordId} {
-      allow read: if signedIn() && isAllowedEmail();
+      allow read: if canAccessHouseholdDoc(resource.data)
+        || canAccessLegacyRecord(resource.data);
 
       allow create: if signedIn()
         && isAllowedEmail()
@@ -98,7 +99,8 @@ service cloud.firestore {
     }
 
     match /fixed_templates/{templateId} {
-      allow read: if signedIn() && isAllowedEmail();
+      allow read: if canAccessHouseholdDoc(resource.data)
+        || canAccessLegacyFixedTemplate(resource.data);
 
       allow create: if signedIn()
         && isAllowedEmail()
@@ -118,7 +120,9 @@ service cloud.firestore {
     }
 
     match /imageImports/{docId} {
-      allow read: if signedIn() && isAllowedEmail();
+      allow read: if signedIn()
+        && isAllowedEmail()
+        && docId.matches(authHouseholdId() + "_.*");
 
       allow create: if signedIn()
         && isAllowedEmail()

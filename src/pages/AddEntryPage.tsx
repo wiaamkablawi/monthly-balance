@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { collection, doc, writeBatch } from "firebase/firestore";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import AppLayout from "../app/layout/AppLayout";
 import ImportEntriesModal from "../components/entry/ImportEntriesModal";
+import { useToast } from "../components/Toast";
 import {
   ADD_ENTRY_EXPENSE_CATEGORIES,
   ADD_ENTRY_INCOME_CATEGORIES,
@@ -39,13 +40,22 @@ function splitAmountToInstallments(total: number, n: number): number[] {
   const totalCents = Math.round(total * 100);
   const base = Math.floor(totalCents / n);
   const remainder = totalCents - base * n;
-
   return Array.from({ length: n }, (_, index) => (base + (index === 0 ? remainder : 0)) / 100);
 }
 
 export default function AddEntryPage() {
   const navigate = useNavigate();
-  const [kind, setKind] = useState<EntryKind>("expense_variable");
+  const [searchParams] = useSearchParams();
+  const toast = useToast();
+
+  const initialKind = ((): EntryKind => {
+    const t = searchParams.get("type");
+    if (t === "income") return "income";
+    if (t === "fixed") return "expense_fixed";
+    return "expense_variable";
+  })();
+
+  const [kind, setKind] = useState<EntryKind>(initialKind);
   const [date, setDate] = useState<string>(todayISO());
   const [category, setCategory] = useState<string>("");
   const [description, setDescription] = useState<string>("");
@@ -53,7 +63,6 @@ export default function AddEntryPage() {
   const [installments, setInstallments] = useState<number>(1);
   const [chargeDay, setChargeDay] = useState<number>(1);
   const [err, setErr] = useState<string>("");
-  const [ok, setOk] = useState<string>("");
   const [saving, setSaving] = useState<boolean>(false);
   const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
   const [dupCandidate, setDupCandidate] = useState<EntryDoc | null>(null);
@@ -68,11 +77,6 @@ export default function AddEntryPage() {
   const showInstallments = kind === "expense_variable";
   const showChargeDay = kind === "expense_fixed";
 
-  function resetMessages() {
-    setErr("");
-    setOk("");
-  }
-
   function resetForm() {
     setKind("expense_variable");
     setDate(todayISO());
@@ -81,7 +85,7 @@ export default function AddEntryPage() {
     setAmount("");
     setInstallments(1);
     setChargeDay(1);
-    resetMessages();
+    setErr("");
   }
 
   function navigateToUpdatedSummary(targetMonthKey: string) {
@@ -102,40 +106,19 @@ export default function AddEntryPage() {
   }
 
   function validate(): { amountNumber: number; installmentsNumber: number; chargeDayNumber: number } | null {
-    resetMessages();
+    setErr("");
 
-    if (!date) {
-      setErr("יש לבחור תאריך.");
-      return null;
-    }
-    if (!category) {
-      setErr("יש לבחור קטגוריה.");
-      return null;
-    }
+    if (!date) { setErr("יש לבחור תאריך."); return null; }
+    if (!category) { setErr("יש לבחור קטגוריה."); return null; }
 
     const normalizedAmount = amount.replace(/,/g, "").trim();
     const amountNumber = Number(normalizedAmount);
 
-    if (!normalizedAmount || Number.isNaN(amountNumber) || !Number.isFinite(amountNumber)) {
-      setErr("יש להזין סכום תקין.");
-      return null;
-    }
-    if (amountNumber <= 0) {
-      setErr("הסכום חייב להיות גדול מאפס.");
-      return null;
-    }
+    if (!normalizedAmount || !Number.isFinite(amountNumber)) { setErr("יש להזין סכום תקין."); return null; }
+    if (amountNumber <= 0) { setErr("הסכום חייב להיות גדול מאפס."); return null; }
 
     const installmentsNumber = showInstallments ? clampInt(Number(installments), 1, 60) : 1;
-    const chargeDayNumber = showChargeDay ? clampInt(Number(chargeDay), 1, 28) : 1;
-
-    if (showInstallments && installmentsNumber < 1) {
-      setErr("מספר התשלומים חייב להיות 1 או יותר.");
-      return null;
-    }
-    if (showChargeDay && (chargeDayNumber < 1 || chargeDayNumber > 28)) {
-      setErr("יום החיוב חייב להיות בין 1 ל-28.");
-      return null;
-    }
+    const chargeDayNumber = showInstallments || showChargeDay ? clampInt(Number(chargeDay), 1, 28) : 1;
 
     return { amountNumber, installmentsNumber, chargeDayNumber };
   }
@@ -154,7 +137,7 @@ export default function AddEntryPage() {
 
     const householdId = householdIdFromEmail(user.email);
     setSaving(true);
-    resetMessages();
+    setErr("");
 
     try {
       if (kind === "expense_fixed") {
@@ -166,6 +149,7 @@ export default function AddEntryPage() {
           startDate: date,
           isActive: true,
         });
+        toast.show(`הוצאה קבועה נשמרה — ${category}`, "success");
         navigateToUpdatedSummary(monthKeyFromISO(date));
         return;
       }
@@ -185,10 +169,7 @@ export default function AddEntryPage() {
 
       if (similar) {
         const confirmed = await showDuplicateWarning(similar);
-        if (!confirmed) {
-          setSaving(false);
-          return;
-        }
+        if (!confirmed) { setSaving(false); return; }
       }
 
       if (!showInstallments || validated.installmentsNumber === 1) {
@@ -205,20 +186,18 @@ export default function AddEntryPage() {
           householdId,
           createdAt: createdAtBase,
           createdBy: user.email,
-          ...(showChargeDay
-            ? {
-                installmentsTotal: 1,
-                installmentIndex: 1,
-                installmentGroupId,
-                chargeDay: validated.chargeDayNumber,
-              }
-            : {}),
         };
 
         const batch = writeBatch(db);
         batch.set(doc(collection(db, "records")), payload);
         await batch.commit();
         invalidateRecordsState();
+        toast.show(
+          kind === "income"
+            ? `הכנסה נשמרה — ₪${validated.amountNumber.toLocaleString("he-IL")}`
+            : `הוצאה נשמרה — ${category} ₪${validated.amountNumber.toLocaleString("he-IL")}`,
+          "success"
+        );
       } else {
         const installmentsAmounts = splitAmountToInstallments(validated.amountNumber, validated.installmentsNumber);
         const [year, month, day] = date.split("-").map(Number);
@@ -256,71 +235,89 @@ export default function AddEntryPage() {
 
         await batch.commit();
         invalidateRecordsState();
+        toast.show(
+          `${category} — ${validated.installmentsNumber} תשלומים נשמרו`,
+          "success"
+        );
       }
 
       navigateToUpdatedSummary(monthKeyFromISO(date));
     } catch (error: any) {
-      setErr(error?.message || "אירעה שגיאה בשמירת התנועה. בדוק הרשאות Firestore ונסה שוב.");
+      const msg = error?.message || "אירעה שגיאה בשמירת התנועה.";
+      setErr(msg);
+      toast.show(msg, "error");
     } finally {
       setSaving(false);
     }
   }
 
+  const kindLabel: Record<EntryKind, string> = {
+    expense_variable: "הוצאה משתנה",
+    expense_fixed: "הוצאה קבועה",
+    income: "הכנסה",
+  };
+
   return (
     <AppLayout
       title="קליטת תנועה"
-      subtitle="אפשר להזין ידנית, להגדיר הוצאה קבועה או לפצל רכישה לתשלומים. במסך הייבוא אפשר גם לפרק קובץ או צילום מסך לשורות לפני שמירה."
+      subtitle="הזנה ידנית, הוצאה קבועה, תשלומים, או ייבוא קובץ — הכל ממסך אחד."
     >
       <div className="page-stack">
-        <section className="card">
+        {/* Import card */}
+        <section className="card coral-card">
           <div className="section-header compact">
             <div>
               <div className="section-title">ייבוא קובץ או צילום מסך</div>
-              <div className="section-subtitle">המערכת מפרקת קובץ או תמונה לשורות עריכה, ורק אחרי אישור הן נשמרות למסד.</div>
+              <div className="section-subtitle">המערכת מפרקת קובץ לשורות לעריכה — שמירה רק אחרי אישורך.</div>
             </div>
+            <button
+              className="btn coral-btn"
+              type="button"
+              onClick={() => { setErr(""); setIsImportOpen(true); }}
+              disabled={saving}
+            >
+              📋 פתח ייבוא
+            </button>
           </div>
-
-          <div className="grid">
-            <div className="muted text-small">נתמכים CSV, Excel, PDF ותמונות. בצילומי מסך של טבלאות עסקאות מתבצע OCR עם preview לפני שמירה.</div>
-            <div className="toolbar-actions" style={{ justifyContent: "space-between" }}>
-              <div className="muted text-small">הייבוא החדש לא מכניס נתונים ישירות, אלא עובר קודם דרך מסך בקרה.</div>
-              <button
-                className="btn secondary"
-                type="button"
-                onClick={() => {
-                  resetMessages();
-                  setIsImportOpen(true);
-                }}
-                disabled={saving}
-              >
-                פתח מסך ייבוא
-              </button>
-            </div>
+          <div className="muted text-small" style={{ marginTop: 4 }}>
+            נתמכים CSV, Excel, PDF ותמונות. צילומי מסך מנותחים עם OCR ומוצגים לעריכה לפני שמירה.
           </div>
         </section>
 
-        <section className="card">
-          <div className="section-header compact">
+        {/* Manual entry card */}
+        <section className="card coral-card">
+          <div className="section-header compact" style={{ marginBottom: 16 }}>
             <div>
               <div className="section-title">הזנה ידנית</div>
-              <div className="section-subtitle">תנועה בודדת, הוצאה קבועה חודשית או הוצאה בתשלומים, באותו טופס עבודה.</div>
+              <div className="section-subtitle">תנועה בודדת, הוצאה קבועה, או רכישה בתשלומים.</div>
+            </div>
+            <div
+              style={{
+                padding: "6px 14px",
+                borderRadius: 999,
+                background: "rgba(255,92,53,0.1)",
+                color: "var(--coral-primary, #FF5C35)",
+                fontWeight: 700,
+                fontSize: "0.82rem",
+              }}
+            >
+              {kindLabel[kind]}
             </div>
           </div>
 
           <form id="add-entry-form" onSubmit={onSubmit} className="grid">
             <div className="form-grid">
               <div className="grid">
-                <label>סוג</label>
+                <label>סוג תנועה</label>
                 <select
                   className="input"
                   value={kind}
-                  onChange={(event) => {
-                    const nextKind = event.target.value as EntryKind;
-                    setKind(nextKind);
+                  onChange={(e) => {
+                    setKind(e.target.value as EntryKind);
                     setCategory("");
                     setInstallments(1);
                     setChargeDay(1);
-                    resetMessages();
+                    setErr("");
                   }}
                   disabled={saving}
                 >
@@ -332,37 +329,50 @@ export default function AddEntryPage() {
 
               <div className="grid">
                 <label>{kind === "expense_fixed" ? "תאריך התחלה" : "תאריך"}</label>
-                <input className="input" type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={saving} />
+                <input
+                  className="input"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  disabled={saving}
+                />
               </div>
             </div>
 
             <div className="form-grid">
               <div className="grid">
                 <label>קטגוריה</label>
-                <select className="input" value={category} onChange={(event) => setCategory(event.target.value)} disabled={saving}>
-                  <option value="">בחר קטגוריה</option>
-                  {categories.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
+                <select
+                  className="input"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  disabled={saving}
+                >
+                  <option value="">— בחר קטגוריה —</option>
+                  {categories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </div>
 
               <div className="grid">
-                <label>סכום</label>
-                <input
-                  className="input"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                  placeholder="לדוגמה: 120"
-                  disabled={saving}
-                />
+                <label>סכום (₪)</label>
+                <div className="amount-field-wrap">
+                  <span className="amount-currency-prefix">₪</span>
+                  <input
+                    className="input"
+                    inputMode="decimal"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0.00"
+                    disabled={saving}
+                    style={{ paddingLeft: 36 }}
+                  />
+                </div>
               </div>
             </div>
 
-            {showInstallments ? (
+            {showInstallments && (
               <div className="form-grid">
                 <div className="grid">
                   <label>מספר תשלומים</label>
@@ -372,27 +382,26 @@ export default function AddEntryPage() {
                     min={1}
                     max={60}
                     value={installments}
-                    onChange={(event) => setInstallments(clampInt(Number(event.target.value), 1, 60))}
+                    onChange={(e) => setInstallments(clampInt(Number(e.target.value), 1, 60))}
                     disabled={saving}
                   />
                 </div>
-
                 <div className="grid">
-                  <label>יום חיוב</label>
+                  <label>יום חיוב (תשלום 2+)</label>
                   <input
                     className="input"
                     type="number"
                     min={1}
                     max={28}
                     value={chargeDay}
-                    onChange={(event) => setChargeDay(clampInt(Number(event.target.value), 1, 28))}
+                    onChange={(e) => setChargeDay(clampInt(Number(e.target.value), 1, 28))}
                     disabled={saving}
                   />
                 </div>
               </div>
-            ) : null}
+            )}
 
-            {!showInstallments && showChargeDay ? (
+            {showChargeDay && !showInstallments && (
               <div className="grid">
                 <label>יום חיוב חודשי</label>
                 <input
@@ -401,43 +410,43 @@ export default function AddEntryPage() {
                   min={1}
                   max={28}
                   value={chargeDay}
-                  onChange={(event) => setChargeDay(clampInt(Number(event.target.value), 1, 28))}
+                  onChange={(e) => setChargeDay(clampInt(Number(e.target.value), 1, 28))}
                   disabled={saving}
                 />
               </div>
-            ) : null}
+            )}
 
-            {kind === "expense_variable" ? (
+            {kind === "expense_variable" && installments > 1 && (
               <div className="note-banner">
-                התשלום הראשון יישמר בתאריך שבחרת. אם הזנת יותר מתשלום אחד, המערכת תייצר אוטומטית את יתר התשלומים לפי יום החיוב שבחרת.
+                תשלום 1 מתוך {installments} יישמר בתאריך שנבחר. יתר התשלומים ייוצרו אוטומטית לפי יום החיוב.
               </div>
-            ) : null}
+            )}
 
-            {kind === "expense_fixed" ? (
+            {kind === "expense_fixed" && (
               <div className="note-banner">
-                הוצאה קבועה נשמרת כתבנית חודשית. מהחודש שנבחר והלאה המערכת תוכל לייצר חיובים אוטומטיים בדשבורד וביומן.
+                הוצאה קבועה נשמרת כתבנית חודשית. מהחודש שנבחר והלאה תוצג בדשבורד ובדו״חות.
               </div>
-            ) : null}
+            )}
 
             <div className="grid">
-              <label>תיאור</label>
+              <label>תיאור (אופציונלי)</label>
               <input
                 className="input"
                 value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder='לדוגמה: ועד בית או מנוי אינטרנט'
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="לדוגמה: ועד בית, מנוי Netflix"
                 disabled={saving}
               />
             </div>
 
-            {err ? <div className="error-banner">{err}</div> : null}
-            {ok ? <div className="note-banner">{ok}</div> : null}
+            {err && <div className="error-banner">{err}</div>}
 
             <div className="form-submit-bar">
-              <button className="btn" type="submit" disabled={saving}>
-                {saving ? "שומר..." : kind === "expense_fixed" ? "שמור הוצאה קבועה" : "שמור תנועה"}
+              <button className="btn" type="submit" disabled={saving} style={{ minWidth: 160 }}>
+                {saving ? (
+                  <>שומר...<span className="saving-spinner" /></>
+                ) : kind === "expense_fixed" ? "שמור הוצאה קבועה" : "שמור תנועה"}
               </button>
-
               <button className="btn secondary" type="button" disabled={saving} onClick={resetForm}>
                 נקה טופס
               </button>
@@ -451,19 +460,24 @@ export default function AddEntryPage() {
         onClose={() => setIsImportOpen(false)}
         monthKey={monthKeyFromISO(date)}
         defaultDateISO={date || todayISO()}
-        onSaved={(savedMonthKey) => navigateToUpdatedSummary(savedMonthKey)}
+        onSaved={(savedMonthKey) => {
+          toast.show("הייבוא הושלם בהצלחה", "success");
+          navigateToUpdatedSummary(savedMonthKey);
+        }}
       />
 
       {dupCandidate && (
         <div className="dup-warning-overlay">
           <div className="dup-warning-box">
-            <div className="dup-warning-title">נמצאה הוצאה דומה</div>
+            <div className="dup-warning-title">⚠️ נמצאה הוצאה דומה</div>
             <div className="dup-warning-details">
               <span>{dupCandidate.date}</span>
               <span>{dupCandidate.category}</span>
               <span>₪{dupCandidate.amount.toLocaleString("he-IL")}</span>
             </div>
-            {dupCandidate.description && <div className="dup-warning-desc">{dupCandidate.description}</div>}
+            {dupCandidate.description && (
+              <div className="dup-warning-desc">{dupCandidate.description}</div>
+            )}
             <div className="dup-warning-actions">
               <button className="btn secondary" type="button" onClick={() => dismissDuplicateWarning(false)}>
                 ביטול

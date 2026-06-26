@@ -17,16 +17,37 @@ const HOUSEHOLD_ID = "household_wb";
 
 const googleProvider = new GoogleAuthProvider();
 
+// ── Auth-state cache (localStorage) for instant render ─────────────────────
+const CACHED_AUTH_KEY = "mb_auth_v1";
+
+export function getCachedAuthEmail(): string | null {
+  try {
+    return localStorage.getItem(CACHED_AUTH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistAuthEmail(email: string | null): void {
+  try {
+    if (email) localStorage.setItem(CACHED_AUTH_KEY, email);
+    else localStorage.removeItem(CACHED_AUTH_KEY);
+  } catch { /* ignore */ }
+}
+
+
 export function watchAuth(cb: (u: User | null) => void): () => void {
   return onAuthStateChanged(auth, async (u) => {
     const email = (u?.email || "").toLowerCase();
 
     if (u && !ALLOWED_EMAILS.has(email)) {
       await signOut(auth);
+      persistAuthEmail(null);
       cb(null);
       return;
     }
 
+    persistAuthEmail(u ? (u.email || '').toLowerCase() : null);
     cb(u);
   });
 }
