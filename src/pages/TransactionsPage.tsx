@@ -8,7 +8,14 @@ import {
   DASHBOARD_FIXED_EXPENSE_CATEGORIES,
 } from "../domain/categories";
 import { getEntryLifecycle, getEntryTone, getEntryTypeLabel, getInstallmentLabel, parseAmountInput, sortEntriesByDisplayDate } from "../domain/entries";
-import { deleteEntryRecord, listAvailableMonthKeys, listMonthEntries, subscribeRecordsState, updateEntryRecord } from "../services/recordsService";
+import {
+  deleteEntryRecord,
+  ensureFixedRealizationsForMonth,
+  listAvailableMonthKeys,
+  listMonthEntries,
+  subscribeRecordsState,
+  updateEntryRecord,
+} from "../services/recordsService";
 import type { EntryDoc } from "../types/models";
 import { currentMonthKey, formatMonthKey, listRecentMonthKeys, monthKeyFromISO, todayISO } from "../utils/dates";
 import { formatILS } from "../utils/money";
@@ -92,7 +99,7 @@ export default function TransactionsPage() {
       setErrorMessage("");
 
       try {
-        const loadedItems = await listMonthEntries(monthKey);
+        const loadedItems = await listMonthEntries(monthKey, { ensureFixedRealizations: false });
         if (cancelled) return;
 
         setItems(loadedItems);
@@ -103,7 +110,19 @@ export default function TransactionsPage() {
         setItems([]);
         setState("error");
         setErrorMessage(error?.message || "לא הצלחנו לטעון את יומן התנועות.");
+        return;
       }
+      void (async () => {
+        try {
+          const createdCount = await ensureFixedRealizationsForMonth(monthKey);
+          if (cancelled || createdCount <= 0) return;
+
+          const refreshedItems = await listMonthEntries(monthKey, { ensureFixedRealizations: false });
+          if (!cancelled) setItems(refreshedItems);
+        } catch (error) {
+          console.warn("[monthly-balance] fixed realization background sync failed", error);
+        }
+      })();
     }
 
     loadTransactions();

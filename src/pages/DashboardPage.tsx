@@ -8,6 +8,7 @@ import ImportEntriesModal from "../components/entry/ImportEntriesModal";
 import { groupVariableExpensesByCategory, summarizeMonthlyEntries } from "../domain/analytics";
 import { getEntryLifecycle, getEntryTone, getEntryTypeLabel, getInstallmentLabel, isFixedExpense, sortEntriesByDisplayDate } from "../domain/entries";
 import {
+  ensureFixedRealizationsForMonth,
   listAvailableMonthKeys,
   listMonthEntries,
   listVariableExpenseTrend,
@@ -218,7 +219,7 @@ export default function DashboardPage() {
     async function load() {
       setState("loading"); setErrorMessage(""); setTrend([]); setShowCharts(false);
       try {
-        const monthEntries = await listMonthEntries(monthKey);
+        const monthEntries = await listMonthEntries(monthKey, { ensureFixedRealizations: false });
         if (cancelled) return;
         setEntries(monthEntries); setState("ready");
         chartTimer = window.setTimeout(() => { if (!cancelled) setShowCharts(true); }, 0);
@@ -228,6 +229,17 @@ export default function DashboardPage() {
         setErrorMessage(err?.message || "לא הצלחנו לטעון את הסקירה החודשית.");
         return;
       }
+      void (async () => {
+        try {
+          const createdCount = await ensureFixedRealizationsForMonth(monthKey);
+          if (cancelled || createdCount <= 0) return;
+
+          const refreshedEntries = await listMonthEntries(monthKey, { ensureFixedRealizations: false });
+          if (!cancelled) setEntries(refreshedEntries);
+        } catch (error) {
+          console.warn("[monthly-balance] fixed realization background sync failed", error);
+        }
+      })();
       try {
         const t = await listVariableExpenseTrend(trendMonths);
         if (!cancelled) setTrend(t);
