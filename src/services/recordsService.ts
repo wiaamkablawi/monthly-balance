@@ -893,6 +893,19 @@ async function readRecords(
     return null;
   }
 }
+
+async function getAccessibleRecordSnapshot(recordId: string) {
+  try {
+    return await getDoc(doc(db, "records", recordId));
+  } catch (error) {
+    if (isPermissionDeniedError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
 async function loadRecords(context: SessionContext): Promise<LoadedRecord[]> {
   const cacheKey = recordsCacheKey(context);
   if (cachedRecordsKey === cacheKey) {
@@ -1063,11 +1076,11 @@ export async function ensureFixedRealizationsForMonth(targetMonthKey: string): P
     const missingExistingIds = existingIds.filter((recordId) => !existingFixedRecordIds.has(recordId));
     if (missingExistingIds.length > 0) {
       const fixedRecordChecks = await Promise.all(
-        missingExistingIds.map(async (recordId) => ({ id: recordId, snapshot: await getDoc(doc(db, "records", recordId)) }))
+        missingExistingIds.map(async (recordId) => ({ id: recordId, snapshot: await getAccessibleRecordSnapshot(recordId) }))
       );
 
       for (const { id, snapshot } of fixedRecordChecks) {
-        if (!snapshot.exists()) continue;
+        if (!snapshot?.exists()) continue;
 
         registerExistingFixedRealization(id, snapshot.data() as LegacyRecord);
       }
@@ -1529,7 +1542,6 @@ export async function findSimilarEntry(opts: {
   }
   return null;
 }
-
 
 
 
