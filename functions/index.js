@@ -192,13 +192,13 @@ async function extractWithGpt(apiKey, dataUrl, label) {
         status: res.status,
         error: json?.error?.message ?? json?.error ?? null,
       });
-      return null;
+      return { errorCode: "OCR_UPSTREAM_FAILED" };
     }
 
     const text = sanitizeJson(extractOutputText(json));
     if (!text) {
       logger.warn("GPT returned empty output", { label });
-      return null;
+      return { errorCode: "NO_TEXT_DETECTED" };
     }
 
     let parsed;
@@ -206,24 +206,24 @@ async function extractWithGpt(apiKey, dataUrl, label) {
       parsed = JSON.parse(text);
     } catch (err) {
       logger.warn("GPT returned invalid JSON", { label, message: err?.message });
-      return null;
+      return { errorCode: "OCR_UPSTREAM_FAILED" };
     }
 
     const transactions = normalizeTransactions(parsed?.transactions);
     if (!transactions.length) {
       logger.warn("GPT found no transactions", { label });
-      return null;
+      return { errorCode: "NO_TEXT_DETECTED" };
     }
 
     logger.info("GPT extracted transactions", { label, count: transactions.length });
-    return transactions;
+    return { transactions };
   } catch (err) {
     if (err?.name === "AbortError") {
       logger.warn("GPT timed out", { label });
-    } else {
-      logger.warn("GPT call failed", { label, message: err?.message });
+      return { errorCode: "OCR_UPSTREAM_TIMEOUT" };
     }
-    return null;
+    logger.warn("GPT call failed", { label, message: err?.message });
+    return { errorCode: "OCR_UPSTREAM_FAILED" };
   } finally {
     clearTimeout(timeout);
   }
@@ -295,13 +295,13 @@ exports.ocrParse = onRequest(
 
     // Extract
     try {
-      const transactions = await extractWithGpt(apiKey, dataUrl, "main");
-      if (transactions?.length) {
-        res.status(200).json({ transactions });
+      const result = await extractWithGpt(apiKey, dataUrl, "main");
+      if (result.transactions?.length) {
+        res.status(200).json({ transactions: result.transactions });
         return;
       }
 
-      res.status(422).json({ error: "NO_TEXT_DETECTED" });
+      res.status(422).json({ error: result.errorCode || "NO_TEXT_DETECTED" });
     } catch (err) {
       logger.error("OCR parse failed", { message: err?.message, stack: err?.stack });
       res.status(500).json({ error: "OCR_INTERNAL_ERROR" });
